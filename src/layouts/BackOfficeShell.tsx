@@ -82,7 +82,7 @@ function ShellFrame() {
         <main
           id="main"
           tabIndex={-1}
-          className="w-full max-w-[1440px] flex-1 px-4 py-6 focus:outline-none sm:px-6 lg:px-8"
+          className="mx-auto w-full max-w-[1440px] flex-1 px-4 py-6 focus:outline-none sm:px-6 lg:px-8"
         >
           <Outlet />
         </main>
