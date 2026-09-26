@@ -1,0 +1,135 @@
+@import 'tailwindcss';
+
+/*
+ * EMS design tokens. The default Tailwind palette and type scale are cleared
+ * so only these values can be used.
+ */
+@theme {
+  --color-*: initial;
+  --color-white: #ffffff;
+  --color-transparent: transparent;
+
+  /* Ink — text, primary field buttons, focus */
+  --color-ink: #15201b;
+  --color-ink-2: #3b4842; /* secondary text */
+  --color-ink-3: #5c6863; /* muted text, still AA on paper */
+  --color-ink-tint: #ebe8e0; /* hover rows, subtle fills */
+
+  /* Paper — backgrounds */
+  --color-paper: #f6f4ee;
+  --color-surface: #ffffff;
+
+  /* Ledger — primary action, money in, collected */
+  --color-ledger: #0b6b47;
+  --color-ledger-strong: #08543a;
+  --color-ledger-tint: #e2f1e9;
+  --color-ledger-bright: #2fb57f; /* on Ink only: active nav, online dot */
+
+  /* Ochre — pending, arrears, awaiting approval, pending sync */
+  --color-ochre: #9a5300;
+  --color-ochre-tint: #fbefd9;
+
+  /* Brick — errors, variance, destructive, overdue */
+  --color-brick: #b3261e;
+  --color-brick-strong: #8f1e18;
+  --color-brick-tint: #fbe7e5;
+
+  /* Rule — borders and dividers */
+  --color-rule: #d5d1c6;
+  --color-rule-strong: #8a8576; /* input and control borders: 3:1 on white */
+
+  --font-*: initial;
+  --font-sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'Cascadia Mono', monospace;
+
+  --text-*: initial;
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 1rem;
+  --text-base--line-height: 1.5rem;
+  --text-lg: 1.25rem;
+  --text-lg--line-height: 1.75rem;
+  --text-xl: 1.5rem;
+  --text-xl--line-height: 2rem;
+  --text-2xl: 2rem;
+  --text-2xl--line-height: 2.5rem;
+  /* Field app */
+  --text-field: 1.0625rem;
+  --text-field--line-height: 1.625rem;
+  --text-amount-sm: 1.75rem;
+  --text-amount-sm--line-height: 2.125rem;
+  --text-amount: 2.5rem;
+  --text-amount--line-height: 2.75rem;
+  --text-amount-lg: 3.5rem;
+  --text-amount-lg--line-height: 3.75rem;
+
+  --radius-*: initial;
+  --radius-sm: 2px;
+  --radius: 4px;
+  --radius-full: 9999px;
+
+  --shadow-*: initial;
+  --shadow-overlay: 0 8px 24px rgb(21 32 27 / 0.18), 0 1px 3px rgb(21 32 27 / 0.12);
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    color: var(--color-ink);
+    background: var(--color-paper);
+    -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    min-height: 100dvh;
+  }
+
+  /* One visible focus style everywhere. */
+  :focus-visible {
+    outline: 2px solid var(--color-ink);
+    outline-offset: 2px;
+  }
+
+  /* On dark surfaces, the ring switches to white. */
+  .on-dark :focus-visible {
+    outline-color: var(--color-white);
+  }
+
+  ::selection {
+    background: var(--color-ledger-tint);
+  }
+
+  dialog::backdrop {
+    background: rgb(21 32 27 / 0.45);
+  }
+}
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@utility safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media print {
+  html,
+  body {
+    background: #fff;
+  }
+  @page {
+    margin: 12mm;
+  }
+}

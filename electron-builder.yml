@@ -1,0 +1,29 @@
+# Windows installer for the EMS desktop test build: npm run desktop:package
+appId: ng.entacrest.ems
+productName: EMS
+copyright: Copyright © 2026 Entacrest
+directories:
+  output: release
+  buildResources: electron/resources
+# The main process only uses Node built-ins; the web app is already bundled.
+files:
+  - electron/main.cjs
+  - dist-desktop/**
+  - package.json
+  - '!node_modules/**'
+npmRebuild: false
+# Reuse the Electron already in node_modules instead of unpacking a fresh copy.
+electronDist: node_modules/electron/dist
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: electron/resources/icon.png
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: EMS
+  artifactName: EMS-Setup-${version}.${ext}

@@ -1,0 +1,283 @@
+import type { Gender } from '@/types'
+
+export interface BranchSeed {
+  code: string
+  name: string
+  address: string
+  phone: string
+  centre: { lat: number; lng: number }
+  areas: readonly string[]
+}
+
+export const BRANCH_SEEDS: readonly BranchSeed[] = [
+  {
+    code: '01',
+    name: 'Egbeda',
+    address: '24 Idimu Road, Egbeda, Lagos',
+    phone: '08091234501',
+    centre: { lat: 6.592, lng: 3.293 },
+    areas: ['Akowonjo Road', 'Shasha', 'Idimu Road', 'Gowon Estate', 'Egbeda Market'],
+  },
+  {
+    code: '02',
+    name: 'Olugbede',
+    address: '7 Olugbede Market Road, Egbeda, Lagos',
+    phone: '08091234502',
+    centre: { lat: 6.6, lng: 3.285 },
+    areas: ['Olugbede Market', 'Liasu Road', 'Ikola Road', 'Pleasure', 'Alimosho Road'],
+  },
+  {
+    code: '03',
+    name: 'Ikotun',
+    address: '112 Ikotun-Egbe Road, Ikotun, Lagos',
+    phone: '08091234503',
+    centre: { lat: 6.549, lng: 3.264 },
+    areas: ['Ikotun Market', 'Ijegun', 'Isheri-Olofin', 'Governor Road', 'Obadore'],
+  },
+  {
+    code: '04',
+    name: 'Ipaja',
+    address: '45 Ipaja Road, Ipaja, Lagos',
+    phone: '08091234504',
+    centre: { lat: 6.614, lng: 3.266 },
+    areas: ['Ipaja Market', 'Ayobo', 'Baruwa', 'Command Road', 'Abesan Estate'],
+  },
+  {
+    code: '05',
+    name: 'Igando',
+    address: '18 LASU-Isheri Road, Igando, Lagos',
+    phone: '08091234505',
+    centre: { lat: 6.556, lng: 3.235 },
+    areas: ['Igando Market', 'LASU-Isheri Road', 'Solomade', 'Egan', 'Ikotun-Igando Road'],
+  },
+]
+
+export const STREETS = [
+  'Adeniji Street',
+  'Oyewole Close',
+  'Bamidele Avenue',
+  'Salami Street',
+  'Okafor Crescent',
+  'Olatunji Street',
+  'Ogundipe Close',
+  'Market Road',
+  'Church Street',
+  'Mosque Road',
+  'Balogun Street',
+  'Akinyemi Street',
+  'Alhaji Musa Close',
+  'Ifeanyi Street',
+  'Oduya Street',
+  'Community Road',
+] as const
+
+interface NamePool {
+  female: readonly string[]
+  male: readonly string[]
+  surnames: readonly string[]
+}
+
+export const NAME_POOLS: readonly (readonly [NamePool, number])[] = [
+  [
+    {
+      female: [
+        'Folasade',
+        'Adebola',
+        'Funmilayo',
+        'Omolara',
+        'Titilayo',
+        'Kehinde',
+        'Yetunde',
+        'Bukola',
+        'Ronke',
+        'Iyabo',
+        'Abosede',
+        'Morenike',
+        'Temitope',
+        'Bisola',
+        'Adenike',
+        'Motunrayo',
+        'Omotola',
+        'Olufunke',
+        'Mariam',
+        'Kafayat',
+        'Rukayat',
+        'Sekinat',
+        'Idiat',
+        'Silifat',
+      ],
+      male: [
+        'Adebayo',
+        'Olumide',
+        'Babatunde',
+        'Oluwaseun',
+        'Tunde',
+        'Kunle',
+        'Segun',
+        'Femi',
+        'Gbenga',
+        'Dapo',
+        'Ayodele',
+        'Kayode',
+        'Wale',
+        'Lekan',
+        'Akeem',
+        'Rasheed',
+        'Tajudeen',
+        'Kazeem',
+        'Olalekan',
+        'Ibrahim',
+      ],
+      surnames: [
+        'Adeyemi',
+        'Ogunleye',
+        'Balogun',
+        'Adebayo',
+        'Olatunji',
+        'Oyewole',
+        'Akinola',
+        'Ogundipe',
+        'Adeleke',
+        'Bakare',
+        'Salami',
+        'Lawal',
+        'Oladipo',
+        'Afolabi',
+        'Adesina',
+        'Ojo',
+        'Alabi',
+        'Ogunbiyi',
+        'Akande',
+        'Olaniyan',
+        'Adekunle',
+        'Ayinde',
+        'Oduya',
+        'Adewale',
+        'Oyinlola',
+      ],
+    },
+    60,
+  ],
+  [
+    {
+      female: [
+        'Chioma',
+        'Ngozi',
+        'Adaeze',
+        'Nkechi',
+        'Ifeoma',
+        'Chinwe',
+        'Uchechi',
+        'Amaka',
+        'Obioma',
+        'Ebere',
+      ],
+      male: [
+        'Chinedu',
+        'Emeka',
+        'Obinna',
+        'Ikenna',
+        'Chukwuemeka',
+        'Uchenna',
+        'Ifeanyi',
+        'Nnamdi',
+        'Kelechi',
+        'Chidi',
+      ],
+      surnames: [
+        'Okafor',
+        'Okeke',
+        'Nwosu',
+        'Eze',
+        'Obi',
+        'Nwachukwu',
+        'Okonkwo',
+        'Uzor',
+        'Ibe',
+        'Anyanwu',
+        'Ogbonna',
+        'Nnaji',
+      ],
+    },
+    22,
+  ],
+  [
+    {
+      female: ['Aisha', 'Hauwa', 'Zainab', 'Fatima', 'Amina', 'Hadiza', 'Maryam'],
+      male: ['Musa', 'Abubakar', 'Sani', 'Usman', 'Yusuf', 'Aliyu', 'Bello'],
+      surnames: ['Mohammed', 'Abdullahi', 'Bello', 'Usman', 'Sule', 'Garba', 'Danjuma'],
+    },
+    8,
+  ],
+  [
+    {
+      female: ['Efe', 'Osas', 'Ivie', 'Ese', 'Edidiong', 'Imaobong'],
+      male: ['Osagie', 'Efosa', 'Aniekan', 'Ekene', 'Oghenero'],
+      surnames: ['Omoregie', 'Osagie', 'Edet', 'Etim', 'Okoro', 'Ighodaro', 'Akpan', 'Ekanem'],
+    },
+    10,
+  ],
+]
+
+export const OCCUPATIONS = [
+  'Foodstuff trader',
+  'Tailor',
+  'Hairdresser',
+  'Provision store owner',
+  'Mechanic',
+  'Welder',
+  'Food vendor',
+  'POS operator',
+  'Carpenter',
+  'Fashion designer',
+  'Phone accessories seller',
+  'Fish seller',
+  'Pepper seller',
+  'Drinks distributor',
+  'Vulcaniser',
+  'Barber',
+  'Shoemaker',
+  'Electrician',
+  'Cold room operator',
+  'Building materials dealer',
+] as const
+
+export const PHONE_PREFIXES = [
+  '0803',
+  '0806',
+  '0813',
+  '0816',
+  '0703',
+  '0706',
+  '0810',
+  '0814',
+  '0903',
+  '0906',
+  '0805',
+  '0807',
+  '0815',
+  '0705',
+  '0905',
+  '0802',
+  '0808',
+  '0812',
+  '0701',
+  '0708',
+  '0902',
+  '0809',
+  '0817',
+  '0818',
+] as const
+
+export const RELATIONSHIPS = [
+  'Spouse',
+  'Brother',
+  'Sister',
+  'Son',
+  'Daughter',
+  'Mother',
+  'Father',
+  'Cousin',
+] as const
+
+export type { Gender }
