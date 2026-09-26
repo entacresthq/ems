@@ -17,6 +17,7 @@ import { normalisePhone } from '@/lib/phone'
 import { PERMISSION_LABELS, roleWithArticle } from '@/lib/permissionCatalogue'
 import { assignPermissions, grantablePermissions, ROLE_PERMISSIONS } from '@/lib/permissions'
 import { commit, db, updateStaff } from '../db'
+import { platform } from '../platform'
 import { audit, lagosDay, newId, staffName } from '../domain'
 import type { StaffRecord } from '../seed/generate'
 import { out } from '../serializers'
@@ -45,11 +46,11 @@ function publicStaff(record: StaffRecord) {
   return serialize({ ...rest, permissions: effectivePermissions(record) })
 }
 
-/** Readable temporary password, e.g. "Ikola-4821". Shown once to the admin. */
+/** Readable temporary password, e.g. "Ikola-482913". Shown once to the admin. */
 function temporaryPassword(): string {
   const words = ['Egbeda', 'Ikotun', 'Ipaja', 'Igando', 'Ikola', 'Shasha', 'Ayobo', 'Baruwa']
-  const word = words[Math.floor(Math.random() * words.length)]!
-  return `${word}-${String(Math.floor(1000 + Math.random() * 9000))}`
+  const [a = 0, b = 0] = crypto.getRandomValues(new Uint32Array(2))
+  return `${words[a % words.length]}-${100_000 + (b % 900_000)}`
 }
 
 function validateStaff(body: Record<string, unknown>, existing: StaffRecord | null) {
@@ -360,7 +361,7 @@ export const adminHandlers = [
       permissions,
       lastLoginAt: null,
       createdAt: toLagosIso(),
-      password,
+      password: platform().hashPassword(password),
       mustChangePassword: true,
     }
     db().staff.push(record)
@@ -459,7 +460,7 @@ export const adminHandlers = [
 
     if (action === 'reset-password') {
       const password = temporaryPassword()
-      updateStaff(target, { password, mustChangePassword: true })
+      updateStaff(target, { password: platform().hashPassword(password), mustChangePassword: true })
       audit(
         staff,
         'staff.reset_password',
@@ -550,6 +551,13 @@ async function saveBranch(request: Request, id: string | null) {
   const body = await readBody<Record<string, unknown>>(request)
   const pick = (k: string) =>
     k in body ? body[k] : (existing as Record<string, unknown> | undefined)?.[k]
+  const limit = platform().branchLimit()
+  const operational = db().branches.filter((b) => b.kind === 'branch').length
+  if (!existing && limit !== null && operational >= limit)
+    return badRequest(
+      `Your EMS licence covers ${limit} ${limit === 1 ? 'branch' : 'branches'}. Contact Entacrest to add more.`,
+      'licence_limit',
+    )
   const errors: Record<string, string[]> = {}
   const name = text(pick('name'))
   if (!name) errors.name = ['Enter the branch name.']

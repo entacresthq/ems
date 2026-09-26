@@ -10,12 +10,14 @@ import type {
   LoanProduct,
   PaymentMethod,
   Remittance,
+  SmsTemplateKey,
   TodayItem,
   Transaction,
   TransactionChannel,
   TransactionType,
 } from '@/types'
 import { commit, db } from './db'
+import { platform } from './platform'
 import { calendarOf, refreshLoan, type LoanRecord } from './loanState'
 import type { ApprovalRecord, StaffRecord } from './seed/generate'
 
@@ -43,10 +45,33 @@ export const settings = () => db().settings
 export const calendar = (): Calendar => calendarOf(db().settings)
 export const largeWithdrawalThreshold = () => db().settings.largeWithdrawalThreshold
 
+// ── SMS ───────────────────────────────────────────────────────────────────
+
+/** Fill in an SMS template from Settings and send it, if the template is switched on. */
+export function sendTemplateSms(
+  to: string,
+  key: SmsTemplateKey,
+  values: Record<string, string>,
+): void {
+  const template = db().settings.smsTemplates.find((t) => t.key === key)
+  if (!template?.enabled || !to) return
+  const message = template.body.replace(
+    /{([a-z_]+)}/g,
+    (match, name: string) => values[name] ?? match,
+  )
+  platform().sendSms(to, message)
+}
+
 // ── Audit log ─────────────────────────────────────────────────────────────
 
 /** Where a request came from. The real backend records the client IP and user agent. */
 function origin(actor: StaffRecord) {
+  // The desktop server runs on this computer; every window reaches it locally.
+  if (platform().live)
+    return {
+      ip: '127.0.0.1',
+      agent: actor.role === 'account_officer' ? 'EMS Field (desktop)' : 'EMS desktop',
+    }
   if (actor.role === 'account_officer')
     return { ip: '102.89.34.117', agent: 'EMS Field on Android' }
   const code = db().branches.find((b) => b.id === actor.branchId)?.code

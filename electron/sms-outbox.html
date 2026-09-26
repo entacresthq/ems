@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en-NG">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>EMS SMS outbox</title>
+    <style>
+      :root {
+        --ink: #15201b;
+        --ink-2: #4a5550;
+        --paper: #f6f4ee;
+        --surface: #ffffff;
+        --rule: #dcd8cc;
+        --ledger: #0b6b47;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font:
+          14px/1.45 'IBM Plex Sans',
+          'Segoe UI',
+          system-ui,
+          sans-serif;
+      }
+      header {
+        padding: 16px 16px 8px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 16px;
+      }
+      header p {
+        margin: 4px 0 0;
+        color: var(--ink-2);
+        font-size: 13px;
+      }
+      ol {
+        list-style: none;
+        margin: 0;
+        padding: 8px 16px 16px;
+        display: grid;
+        gap: 8px;
+      }
+      li {
+        background: var(--surface);
+        border: 1px solid var(--rule);
+        border-radius: 6px;
+        padding: 10px 12px;
+      }
+      .meta {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        color: var(--ink-2);
+        font-size: 12px;
+      }
+      .to {
+        font-weight: 600;
+        color: var(--ink);
+      }
+      .message {
+        margin-top: 4px;
+        overflow-wrap: anywhere;
+      }
+      .code {
+        font-family: 'IBM Plex Mono', Consolas, monospace;
+        font-size: 18px;
+        font-weight: 600;
+        color: var(--ledger);
+        letter-spacing: 0.08em;
+      }
+      .empty {
+        color: var(--ink-2);
+        padding: 24px 16px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>SMS outbox</h1>
+      <p>
+        Messages EMS would text to staff and customers. Connect an SMS provider before going live;
+        until then, sign-in codes appear here.
+      </p>
+    </header>
+    <ol id="list" aria-live="polite"></ol>
+    <p id="empty" class="empty" hidden>No messages yet. Sign in to see a code arrive.</p>
+    <script>
+      const list = document.getElementById('list')
+      const empty = document.getElementById('empty')
+      let last = ''
+
+      function time(iso) {
+        return new Date(iso).toLocaleTimeString('en-NG', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          timeZone: 'Africa/Lagos',
+        })
+      }
+
+      function render(messages) {
+        list.replaceChildren(
+          ...messages.map((m) => {
+            const li = document.createElement('li')
+            const meta = document.createElement('div')
+            meta.className = 'meta'
+            const to = document.createElement('span')
+            to.className = 'to'
+            to.textContent = m.to
+            const at = document.createElement('span')
+            at.textContent = time(m.sentAt)
+            meta.append(to, at)
+            const body = document.createElement('div')
+            body.className = 'message'
+            // Make sign-in codes easy to read at a glance.
+            const code = /code is (\d{6})/.exec(m.message)
+            if (code) {
+              const big = document.createElement('div')
+              big.className = 'code'
+              big.textContent = code[1]
+              li.append(meta, big)
+            } else li.append(meta)
+            body.textContent = m.message
+            li.append(body)
+            return li
+          }),
+        )
+        empty.hidden = messages.length > 0
+      }
+
+      async function poll() {
+        try {
+          const res = await fetch('/__sms.json', { cache: 'no-store' })
+          const text = await res.text()
+          if (text !== last) {
+            last = text
+            render(JSON.parse(text))
+          }
+        } catch {
+          // EMS is restarting; try again shortly.
+        }
+      }
+      poll()
+      setInterval(poll, 1500)
+    </script>
+  </body>
+</html>

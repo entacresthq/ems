@@ -3,3 +3,4 @@ public/mockServiceWorker.js
 package-lock.json
 dist-desktop
 release
+electron/build

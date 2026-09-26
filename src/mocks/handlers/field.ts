@@ -1,5 +1,5 @@
 import { delay, http, HttpResponse } from 'msw'
-import { toLagosIso, todayIso } from '@/lib/dates'
+import { formatDate, toLagosIso, todayIso } from '@/lib/dates'
 import { formatNaira, kobo } from '@/lib/money'
 import { maskPhone } from '@/lib/phone'
 import type { CollectionRequest, DaySummary, GeoPoint, PaymentMethod } from '@/types'
@@ -13,6 +13,8 @@ import {
   newId,
   post,
   remittanceRow,
+  sendTemplateSms,
+  staffName,
   todayItems,
 } from '../domain'
 import type { StaffRecord } from '../seed/generate'
@@ -146,6 +148,16 @@ export const fieldHandlers = [
       txn.id,
       `Collected ${formatNaira(amount)} ${method} for ${account.accountNumber} (${txn.reference})`,
     )
+    sendTemplateSms(customer.phone, 'collection_receipt', {
+      customer_name: `${customer.firstName} ${customer.lastName}`,
+      amount: formatNaira(amount),
+      account_type: account.type,
+      account_number: account.accountNumber,
+      date: formatDate(txn.createdAt),
+      balance: formatNaira(account.balance),
+      reference: txn.reference,
+      officer_name: staffName(staff),
+    })
     return HttpResponse.json(
       {
         transaction: out.transaction(txn),

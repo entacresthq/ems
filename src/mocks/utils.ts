@@ -5,6 +5,7 @@ import { hasPermission, ROLE_PERMISSIONS } from '@/lib/permissions'
 import { parseDecimal, toDecimal, type Kobo } from '@/lib/money'
 import type { AuthUser, Permission } from '@/types'
 import { db } from './db'
+import { platform } from './platform'
 import type { StaffRecord } from './seed/generate'
 
 /** Absolute URL pattern for a handler, e.g. api('/customers/:id/'). */
@@ -14,7 +15,9 @@ export function api(path: string): string {
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
-// Mock tokens are readable JSON, not signed. The real backend uses simplejwt.
+// A readable JSON body plus a signature. The demo's signature is a placeholder;
+// the desktop server signs with HMAC-SHA256 (see platform.ts). The Django
+// backend will use simplejwt.
 
 const ACCESS_TTL_S = 5 * 60
 export const REFRESH_TTL_S = 12 * 60 * 60
@@ -41,17 +44,29 @@ interface TokenPayload {
 
 const nowS = () => Math.floor(Date.now() / 1000)
 
+function signed(payload: TokenPayload): string {
+  const body = encode(payload)
+  return `ems.${body}.${platform().sign(body)}`
+}
+
+/** The token's payload, if its signature checks out. */
+function verified(token: string): TokenPayload | null {
+  const [, body = '', signature = ''] = token.split('.')
+  if (!body || platform().sign(body) !== signature) return null
+  return decode<TokenPayload>(body)
+}
+
 export function issueAccess(userId: string): string {
-  return `mock.${encode({ sub: userId, exp: nowS() + ACCESS_TTL_S, typ: 'access' })}.sig`
+  return signed({ sub: userId, exp: nowS() + ACCESS_TTL_S, typ: 'access' })
 }
 
 export function issueRefresh(userId: string): string {
-  return encode({ sub: userId, exp: nowS() + REFRESH_TTL_S, typ: 'refresh' })
+  return signed({ sub: userId, exp: nowS() + REFRESH_TTL_S, typ: 'refresh' })
 }
 
 export function readRefresh(token: string | undefined): StaffRecord | null {
   if (!token) return null
-  const payload = decode<TokenPayload>(token)
+  const payload = verified(token)
   if (!payload || payload.typ !== 'refresh' || payload.exp < nowS()) return null
   return activeStaff(payload.sub)
 }
@@ -65,7 +80,7 @@ function activeStaff(id: string): StaffRecord | null {
 export function authenticate(request: Request): StaffRecord | Response {
   const header = request.headers.get('Authorization') ?? ''
   const token = header.startsWith('Bearer ') ? header.slice(7) : ''
-  const payload = decode<TokenPayload>(token.split('.')[1] ?? '')
+  const payload = verified(token)
   const staff =
     payload && payload.typ === 'access' && payload.exp >= nowS() ? activeStaff(payload.sub) : null
   if (!staff) {

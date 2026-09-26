@@ -121,12 +121,19 @@ function CredentialsStep({
         >
           Continue
         </Button>
-        <Link
-          to="/reset-password"
-          className="text-ink self-start text-sm font-medium underline underline-offset-2"
-        >
-          Forgot your password?
-        </Link>
+        {config.desktop ? (
+          // No reset emails from the desktop app: a manager issues a temporary password.
+          <p className="text-ink-2 text-sm">
+            Forgot your password? Ask your MD or general manager to reset it.
+          </p>
+        ) : (
+          <Link
+            to="/reset-password"
+            className="text-ink self-start text-sm font-medium underline underline-offset-2"
+          >
+            Forgot your password?
+          </Link>
+        )}
       </form>
     </AuthLayout>
   )
@@ -219,7 +226,13 @@ function OtpStep({
         {resent && !formError && <Alert tone="success">A new code is on its way.</Alert>}
         <OtpInput
           label="Sign-in code"
-          hint={config.useMocks ? `Demo code: ${DEMO_OTP}` : undefined}
+          hint={
+            config.useMocks
+              ? `Demo code: ${DEMO_OTP}`
+              : config.desktop
+                ? 'Until an SMS provider is connected, the code appears in a notification and under File → SMS outbox.'
+                : undefined
+          }
           error={errors.code?.message}
           {...register('code')}
         />

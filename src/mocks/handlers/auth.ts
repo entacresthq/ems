@@ -1,8 +1,9 @@
 import { delay, http, HttpResponse } from 'msw'
 import { maskPhone } from '@/lib/phone'
 import { db, updateStaff } from '../db'
-import { audit } from '../domain'
-import { DEMO_OTP, type StaffRecord } from '../seed/generate'
+import { audit, sendTemplateSms } from '../domain'
+import { platform } from '../platform'
+import type { StaffRecord } from '../seed/generate'
 import {
   api,
   authenticate,
@@ -18,6 +19,7 @@ import {
 
 interface Challenge {
   staffId: string
+  code: string
   attemptsLeft: number
   expiresAt: number
   resendAvailableAt: number
@@ -28,15 +30,18 @@ const OTP_TTL_MS = 5 * 60 * 1000
 const RESEND_AFTER_S = 30
 const MAX_OTP_ATTEMPTS = 5
 
-// Browsers cannot see HttpOnly cookies set by a mock, so the flag is left off
-// here. The real backend must set HttpOnly; Secure; SameSite=Strict.
+// A mock running in the browser can't set HttpOnly cookies, so the demo leaves the
+// flag off. The desktop server sets it. The Django backend must also add Secure.
 const refreshCookie = (value: string, maxAge: number) =>
-  `${REFRESH_COOKIE}=${value}; Path=/; Max-Age=${maxAge}; SameSite=Strict`
+  `${REFRESH_COOKIE}=${value}; Path=/; Max-Age=${maxAge}; SameSite=Strict${platform().live ? '; HttpOnly' : ''}`
 
 function newChallenge(staff: StaffRecord) {
   const id = crypto.randomUUID()
+  const code = platform().otp()
+  sendTemplateSms(staff.phone, 'login_otp', { code })
   challenges.set(id, {
     staffId: staff.id,
+    code,
     attemptsLeft: MAX_OTP_ATTEMPTS,
     expiresAt: Date.now() + OTP_TTL_MS,
     resendAvailableAt: Date.now() + RESEND_AFTER_S * 1000,
@@ -56,7 +61,7 @@ const PASSWORD_RULES: [RegExp, string][] = [
   [/\d/, 'Include at least one number.'],
 ]
 
-function passwordProblems(password: string): string[] {
+export function passwordProblems(password: string): string[] {
   return PASSWORD_RULES.filter(([rule]) => !rule.test(password)).map(([, msg]) => msg)
 }
 
@@ -76,7 +81,7 @@ export const authHandlers = [
     if (Object.keys(missing).length) return validationError(missing)
 
     const staff = db().staff.find((s) => s.email === email)
-    if (!staff || staff.password !== password) {
+    if (!staff || !platform().verifyPassword(staff.password, password)) {
       return validationError({
         nonFieldErrors: ['The email or password is incorrect. Check both and try again.'],
       })
@@ -130,7 +135,7 @@ export const authHandlers = [
       )
     }
     if (!/^\d{6}$/.test(code)) return validationError({ code: ['Enter the 6-digit code.'] })
-    if (code !== DEMO_OTP) {
+    if (code !== challenge.code) {
       challenge.attemptsLeft -= 1
       if (challenge.attemptsLeft <= 0) {
         challenges.delete(challengeId)
@@ -193,7 +198,7 @@ export const authHandlers = [
     const body = (await request.json()) as Body
     const current = str(body, 'current_password')
     const next = str(body, 'new_password')
-    if (current !== staff.password) {
+    if (!platform().verifyPassword(staff.password, current)) {
       return validationError({ currentPassword: ['Your current password is incorrect.'] })
     }
     const problems = passwordProblems(next)
@@ -203,7 +208,7 @@ export const authHandlers = [
         newPassword: ['Choose a password different from your current one.'],
       })
     }
-    updateStaff(staff, { password: next, mustChangePassword: false })
+    updateStaff(staff, { password: platform().hashPassword(next), mustChangePassword: false })
     audit(staff, 'auth.password_change', 'staff', staff.id, 'Changed own password')
     return HttpResponse.json(serialize(toAuthUser(staff)))
   }),
@@ -221,7 +226,8 @@ export const authHandlers = [
     const body = (await request.json()) as Body
     const email = decodeUid(str(body, 'uid'))
     const staff = db().staff.find((s) => s.email === email)
-    if (!staff || str(body, 'token') !== 'demo') {
+    // Emailed reset links are not built yet; the demo accepts the token "demo".
+    if (!staff || platform().live || str(body, 'token') !== 'demo') {
       return HttpResponse.json(
         {
           detail: 'This reset link is invalid or has expired. Request a new one.',
@@ -233,7 +239,7 @@ export const authHandlers = [
     const next = str(body, 'new_password')
     const problems = passwordProblems(next)
     if (problems.length) return validationError({ newPassword: problems })
-    updateStaff(staff, { password: next, mustChangePassword: false })
+    updateStaff(staff, { password: platform().hashPassword(next), mustChangePassword: false })
     return new HttpResponse(null, { status: 204 })
   }),
 ]

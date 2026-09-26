@@ -4,6 +4,8 @@ export const config = {
   /** API base without a trailing slash; may be relative to the page origin. */
   apiBaseUrl: rawBase.replace(/\/+$/, ''),
   useMocks: import.meta.env.VITE_USE_MOCKS === 'true',
+  /** Built into the licensed desktop app, talking to its local server. */
+  desktop: import.meta.env.VITE_DESKTOP === 'true',
   /** Back office signs staff out after this much inactivity. */
   backOfficeIdleMs: 15 * 60 * 1000,
   /** Warning shown this long before the idle sign-out. */

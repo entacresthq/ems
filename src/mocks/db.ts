@@ -21,6 +21,8 @@ interface Snapshot {
 }
 
 let instance: MockDb | null = null
+/** Set by the desktop server: data lives in SQLite and every change is written at once. */
+let externalSave: ((data: MockDb) => void) | null = null
 let idb: Promise<IDBPDatabase> | null = null
 let channel: BroadcastChannel | null = null
 let saveTimer: ReturnType<typeof setTimeout> | null = null
@@ -76,8 +78,21 @@ async function save() {
   channel?.postMessage('changed')
 }
 
-/** Persist after a change. Writes are batched. */
+/**
+ * Serve this data instead of the seed, and save it with `save` after every change.
+ * Used by the desktop app's server, which keeps the data in SQLite.
+ */
+export function attachStore(data: MockDb, save: (data: MockDb) => void) {
+  instance = data
+  externalSave = save
+}
+
+/** Persist after a change. Browser writes are batched; the desktop server writes at once. */
 export function commit() {
+  if (externalSave) {
+    if (instance) externalSave(instance)
+    return
+  }
   if (!hasIndexedDb()) return
   if (saveTimer) clearTimeout(saveTimer)
   saveTimer = setTimeout(() => {

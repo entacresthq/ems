@@ -12,6 +12,9 @@ import { keysToCamel, keysToSnake } from '@/lib/case'
 
 export type FieldErrors = Record<string, string[]>
 
+/** Fired on window when the desktop server refuses a request for want of a licence. */
+export const LICENCE_REQUIRED_EVENT = 'ems:licence-required'
+
 export class ApiError extends Error {
   readonly status: number
   /** Field-level errors keyed by camelCase path, e.g. "nextOfKin.phone". */
@@ -220,7 +223,12 @@ export async function request<T>(
   }
 
   const body = await parseBody(response)
-  if (!response.ok) throw toApiError(response.status, body)
+  if (!response.ok) {
+    const error = toApiError(response.status, body)
+    // The desktop app locks itself when its licence is missing or has ended.
+    if (error.code === 'licence_required') window.dispatchEvent(new Event(LICENCE_REQUIRED_EVENT))
+    throw error
+  }
   return body as T
 }
 

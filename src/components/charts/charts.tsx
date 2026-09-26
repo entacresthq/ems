@@ -99,6 +99,9 @@ export function TargetBars({
   const [active, setActive] = useState<string | null>(null)
   const max = niceMax(Math.max(1, ...items.map((i) => Math.max(i.value, i.target))))
 
+  if (items.length === 0)
+    return <ChartEmpty title={title} message="Nothing expected or collected yet today." />
+
   return (
     <figure className="m-0">
       <figcaption className="mb-3 flex items-center justify-between gap-3">
@@ -190,6 +193,16 @@ export function TargetBars({
   )
 }
 
+/** A chart with nothing to draw yet, such as on a new installation. */
+function ChartEmpty({ title, message }: { title: string; message: string }) {
+  return (
+    <figure className="m-0">
+      <figcaption className="text-sm font-semibold">{title}</figcaption>
+      <p className="text-ink-2 py-10 text-center text-sm">{message}</p>
+    </figure>
+  )
+}
+
 // ── Trend line ────────────────────────────────────────────────────────────
 
 /** Single-series daily trend: 2px line, light wash, crosshair tooltip, end label. */
@@ -218,6 +231,9 @@ export function TrendChart({
     .join(' ')
   const ticks = [0, 0.5, 1].map((f) => f * max)
   const last = points[points.length - 1]
+
+  if (points.every((p) => p.value === 0))
+    return <ChartEmpty title={title} message="Nothing recorded in this period yet." />
 
   const onMove = (e: React.PointerEvent) => {
     const rect = svgRef.current?.getBoundingClientRect()

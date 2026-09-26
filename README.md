@@ -46,18 +46,64 @@ To try the field app on a phone, run `npm run dev -- --host` and open `http://<y
 | `npm run lint`            | ESLint                                                                        |
 | `npm run format`          | Prettier                                                                      |
 | `npm test`                | Vitest: unit tests, seed integrity and the sign-in flow against the mock API  |
-| `npm run desktop`         | Build the desktop test app and open it in Electron                            |
+| `npm run desktop`         | Build the desktop app (web app and EMS server) and open it in Electron        |
+| `npm run licence -- …`    | Entacrest licence tool: `keygen`, `issue`, `verify`                           |
 | `npm run desktop:package` | Build the Windows installer, `release/EMS-Setup-<version>.exe`                |
 
-## Desktop test app (Windows)
+## Desktop app (Windows, licensed)
 
-For testing EMS as an installed app without running a dev server. The installer puts EMS in the Start menu and on the desktop. It runs on the demo data (mock mode), kept on that computer.
+A licensed, installable EMS for one office, with its own database. It locks until a licence code from Entacrest is entered, then walks the buyer through set-up.
 
-- `electron/main.cjs` serves the built app (`dist-desktop/`, built with `.env.desktop`) from a small web server on `127.0.0.1:47821`. MSW needs a real web address; it can't run from `file://`. The port is fixed so demo data, field PINs and settings survive a restart.
-- **File → Field app (phone size)** (Ctrl+2) opens the officer app in a phone-sized window next to the back office. Both share the same demo data, as two browser tabs would.
-- **File → Reset demo data** clears everything and restarts.
-- The installer isn't code-signed, so Windows SmartScreen warns on first run: choose **More info → Run anyway**. Buy a code-signing certificate before giving it to real users.
-- It is a test build. Production EMS is the web app talking to the Django backend.
+**How it works**
+
+- `electron/main.cjs` starts the **EMS server** (`src/server`, bundled to `electron/build/server.cjs`) and serves the web app (`dist-desktop/`, built with `.env.desktop`) next to it on `127.0.0.1:47821`.
+- The server answers the same `/api/v1` endpoints the Django backend will, using the business rules in `src/mocks/handlers`. Its data lives in **SQLite** at `%APPDATA%\EMS\data\ems.sqlite`: one table per collection, one row per record, stored as JSON so it can be queried with `json_extract`. Changes are written in a transaction after every request. `src/mocks/platform.ts` swaps the demo behaviour for live behaviour:
+
+  | Area           | Browser demo              | Desktop app                                                 |
+  | -------------- | ------------------------- | ----------------------------------------------------------- |
+  | Passwords      | Plain text                | scrypt hashes                                               |
+  | Session tokens | Unsigned                  | HMAC-SHA256 signed; the refresh cookie is `HttpOnly`        |
+  | Sign-in codes  | Always `123456`           | Random 6-digit codes                                        |
+  | Text messages  | Not sent                  | Written to an SMS outbox and shown as Windows notifications |
+  | Data           | IndexedDB, reset each day | SQLite, kept                                                |
+
+- **First run:** **Activate** (licence code) → **Set up** (business details, the MD's account, and either no data or sample training data) → **Sign in**.
+- **Menus:**
+  - **File → Field app (phone size)** (Ctrl+2): the officer app.
+  - **File → SMS outbox** (Ctrl+3): every text EMS would send, including sign-in codes.
+  - **File → Back up data…**: a consistent copy of the database.
+  - **Help → Licence details**.
+  - **Help → Erase EMS on this computer…**: back to the licence screen, for testing.
+- **Not live-ready yet:**
+  - There is no SMS provider, so codes appear in the outbox.
+  - There are no password-reset emails; managers reset passwords from the staff page.
+  - Only this PC can reach the server. Phones on the office network would need HTTPS, because the field app's PIN uses browser crypto that needs a secure connection.
+  - The installer isn't code-signed, so SmartScreen warns on first run (**More info → Run anyway**).
+
+### Licences
+
+Licence codes are signed by Entacrest with an Ed25519 private key. The app contains only the public key (`src/server/licence-public-key.pem`), so it can check a code offline but nobody can forge one.
+
+- A code carries:
+  - the licence number;
+  - the licensee;
+  - the plan;
+  - the most branches allowed (enforced when adding a branch);
+  - the expiry date (the app locks again after it, keeping the data);
+  - optionally, a machine code, so it works on one computer only. The activation screen shows each computer's code.
+- It looks like `EMS-<details>.<signature>`. Spaces and line breaks are ignored, so it can be pasted from an email.
+
+```bash
+npm run licence -- keygen                     # once: makes the key pair
+npm run licence -- issue --licensee "Ayo Thrift Society" --months 12 --branches 5
+npm run licence -- issue --licensee "..." --machine 7812-AA37-64FD-BE1E   # this computer only
+npm run licence -- verify EMS-...
+```
+
+- The **private key** is kept at `~/.entacrest/ems-licence/private-key.pem`, outside the repo. Change the folder with `EMS_LICENCE_DIR`.
+- **Never commit the private key. Back it up.** Without it you can't issue codes that installed copies accept. Making a new key pair invalidates every licence already issued.
+- Every issued licence is logged in `issued.csv` beside the key.
+- After `keygen`, rebuild the app so it trusts the new public key.
 
 ## Folder structure
 

@@ -16,9 +16,10 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "desktop:web": "tsc -b && vite build --mode desktop --outDir dist-desktop",
+    "desktop:web": "tsc -b && vite build --mode desktop --outDir dist-desktop && vite build --config vite.server.config.ts --mode desktop",
     "desktop": "npm run desktop:web && node electron/start.cjs",
-    "desktop:package": "npm run desktop:web && electron-builder --win"
+    "desktop:package": "npm run desktop:web && electron-builder --win",
+    "licence": "node scripts/licence.mjs"
   },
   "dependencies": {
     "@fontsource/ibm-plex-mono": "^5.3.0",
