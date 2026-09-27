@@ -1,42 +1,33 @@
-import { DatabaseSync } from 'node:sqlite'
 import type { MockDb } from '@/mocks/seed/generate'
 import type { BusinessSettings } from '@/types'
+import { SqliteBackend } from './storage/sqlite'
+import {
+  COLLECTIONS,
+  SCHEMA_VERSION,
+  TABLES,
+  emptyChanges,
+  hasChanges,
+  type Backend,
+  type Changes,
+  type Collection,
+  type SmsMessage,
+  type Snapshot,
+  type StoredRow,
+  type Table,
+} from './storage/types'
+
+export type { SmsMessage } from './storage/types'
 
 /**
- * SQLite storage for the desktop app. One table per collection, one row per
- * record, with the record as JSON (queryable with json_extract). A `seq`
- * column keeps each list in the order the app holds it: some lists add new
- * records at the front (newest first), others at the end.
+ * The app works on its data in memory; the Store writes what changed to the
+ * backend (SQLite or PostgreSQL). One table per collection, one row per record,
+ * the record as JSON. A `seq` column keeps each list in the order the app holds
+ * it: some lists add new records at the front (newest first), others at the end.
  *
- * The app works on the data in memory and calls save() after every change;
- * save() writes only the rows that were added, changed or removed.
+ * Writes are queued in order. The server waits for them (flush) before answering
+ * a request, so a reply always means the change is saved. If a write fails the
+ * store stops accepting work, because memory and database no longer agree.
  */
-
-const COLLECTIONS = {
-  audit: 'audit_log',
-  remittances: 'remittances',
-  approvals: 'approvals',
-  branches: 'branches',
-  staff: 'staff',
-  customers: 'customers',
-  thriftPlans: 'thrift_plans',
-  loanProducts: 'loan_products',
-  accounts: 'accounts',
-  loans: 'loans',
-  transactions: 'transactions',
-} as const satisfies Record<Exclude<keyof MockDb, 'settings'>, string>
-
-type Collection = keyof typeof COLLECTIONS
-type Row = { id: string }
-
-export const SCHEMA_VERSION = 1
-
-export interface SmsMessage {
-  id: number
-  sentAt: string
-  to: string
-  message: string
-}
 
 interface TableState {
   /** id → the JSON last written, to spot changes. */
@@ -45,91 +36,132 @@ interface TableState {
   maxSeq: number
 }
 
+type Row = { id: string }
+
 export class Store {
-  private readonly sql: DatabaseSync
+  private readonly meta: Map<string, string>
   private readonly tables = new Map<Collection, TableState>()
   private writtenSettings = ''
+  private queue: Promise<void> = Promise.resolve()
+  private failure: Error | null = null
 
-  constructor(file: string) {
-    this.sql = new DatabaseSync(file)
-    this.sql.exec(`
-      PRAGMA journal_mode = WAL;
-      PRAGMA synchronous = NORMAL;
-      CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS sms_outbox (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        sent_at TEXT NOT NULL,
-        to_phone TEXT NOT NULL,
-        message TEXT NOT NULL
-      );
-    `)
-    for (const table of Object.values(COLLECTIONS)) {
-      this.sql.exec(`
-        CREATE TABLE IF NOT EXISTS ${table} (
-          id TEXT PRIMARY KEY,
-          seq REAL NOT NULL,
-          data TEXT NOT NULL CHECK (json_valid(data))
-        );
-        CREATE INDEX IF NOT EXISTS ${table}_seq ON ${table} (seq);
-      `)
-    }
-    if (!this.getMeta('schema_version')) this.setMeta('schema_version', String(SCHEMA_VERSION))
+  private constructor(
+    readonly backend: Backend,
+    private snapshot: Snapshot | null,
+  ) {
+    this.meta = new Map(Object.entries(snapshot?.meta ?? {}))
+  }
+
+  static async open(backend: Backend): Promise<Store> {
+    const store = new Store(backend, await backend.init())
+    if (!store.getMeta('schema_version')) store.setMeta('schema_version', String(SCHEMA_VERSION))
+    return store
+  }
+
+  /** Set when a write failed; nothing else is written after that. */
+  get failed(): Error | null {
+    return this.failure
   }
 
   getMeta(key: string): string | null {
-    const row = this.sql.prepare('SELECT value FROM meta WHERE key = ?').get(key) as
-      { value: string } | undefined
-    return row?.value ?? null
+    return this.meta.get(key) ?? null
   }
 
   setMeta(key: string, value: string) {
-    this.sql
-      .prepare(
-        'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value',
-      )
-      .run(key, value)
+    this.meta.set(key, value)
+    this.enqueue({ ...emptyChanges(), meta: [[key, value]] })
   }
 
-  /** The saved data, or null before onboarding. */
+  /** The saved data, or null before onboarding. Call once, at start-up. */
   load(): MockDb | null {
+    const snapshot = this.snapshot
+    this.snapshot = null
     const settings = this.getMeta('settings')
-    if (!settings) return null
+    if (!snapshot || !settings) return null
     this.writtenSettings = settings
     const data = { settings: JSON.parse(settings) as BusinessSettings } as MockDb
-    for (const [collection, table] of Object.entries(COLLECTIONS) as [Collection, string][]) {
-      const rows = this.sql.prepare(`SELECT id, seq, data FROM ${table} ORDER BY seq`).all() as {
-        id: string
-        seq: number
-        data: string
-      }[]
-      const state: TableState = {
-        written: new Map(rows.map((r) => [r.id, r.data])),
+    for (const [collection, table] of Object.entries(COLLECTIONS) as [Collection, Table][]) {
+      const rows = snapshot.rows[table]
+      const records = rows.map((r) => JSON.parse(r.data) as Row)
+      this.tables.set(collection, {
+        // Re-serialise: Postgres jsonb reorders keys, and the comparison must match save().
+        written: new Map(records.map((record) => [record.id, JSON.stringify(record)])),
         minSeq: rows[0]?.seq ?? 0,
         maxSeq: rows.at(-1)?.seq ?? 0,
-      }
-      this.tables.set(collection, state)
-      ;(data[collection] as unknown[]) = rows.map((r) => JSON.parse(r.data) as unknown)
+      })
+      ;(data[collection] as unknown[]) = records
     }
     return data
   }
 
-  /** Write whatever changed since the last save, in one transaction. */
+  /** Queue whatever changed since the last save, as one transaction. */
   save(data: MockDb) {
-    this.sql.exec('BEGIN')
-    try {
-      const settings = JSON.stringify(data.settings)
-      if (settings !== this.writtenSettings) {
-        this.setMeta('settings', settings)
-        this.writtenSettings = settings
-      }
-      for (const [collection, table] of Object.entries(COLLECTIONS) as [Collection, string][]) {
-        this.saveTable(table, this.state(collection), data[collection] as Row[])
-      }
-      this.sql.exec('COMMIT')
-    } catch (error) {
-      this.sql.exec('ROLLBACK')
-      throw error
+    const changes = emptyChanges()
+    const settings = JSON.stringify(data.settings)
+    if (settings !== this.writtenSettings) {
+      this.meta.set('settings', settings)
+      changes.meta.push(['settings', settings])
+      this.writtenSettings = settings
     }
+    for (const [collection, table] of Object.entries(COLLECTIONS) as [Collection, Table][]) {
+      this.diffTable(table, this.state(collection), data[collection] as Row[], changes)
+    }
+    if (hasChanges(changes)) this.enqueue(changes)
+  }
+
+  /** Wait for queued writes. Throws if any failed. */
+  async flush(): Promise<void> {
+    await this.queue
+    if (this.failure) throw this.failure
+  }
+
+  async addSms(to: string, message: string): Promise<SmsMessage> {
+    const sentAt = new Date().toISOString()
+    let id = 0
+    await this.run(async () => {
+      id = await this.backend.addSms(sentAt, to, message)
+    })
+    return { id, sentAt, to, message }
+  }
+
+  async listSms(limit = 50): Promise<SmsMessage[]> {
+    await this.flush()
+    return this.backend.listSms(limit)
+  }
+
+  /** Write a complete copy of the current data to a new SQLite file. */
+  async backup(file: string, data: MockDb | null) {
+    await this.flush()
+    const target = new SqliteBackend(file)
+    try {
+      await target.init()
+      await target.apply(fullChanges([...this.meta], data))
+    } finally {
+      await target.close()
+    }
+  }
+
+  async close() {
+    await this.queue
+    await this.backend.close()
+  }
+
+  private enqueue(changes: Changes) {
+    void this.run(() => this.backend.apply(changes)).catch(() => undefined)
+  }
+
+  private run(task: () => Promise<void>): Promise<void> {
+    const next = this.queue.then(async () => {
+      if (this.failure) throw this.failure
+      try {
+        await task()
+      } catch (error) {
+        this.failure = error instanceof Error ? error : new Error(String(error))
+        throw this.failure
+      }
+    })
+    this.queue = next.catch(() => undefined)
+    return next
   }
 
   private state(collection: Collection): TableState {
@@ -141,12 +173,8 @@ export class Store {
     return state
   }
 
-  private saveTable(table: string, state: TableState, rows: Row[]) {
-    const upsert = this.sql.prepare(
-      `INSERT INTO ${table} (id, seq, data) VALUES (?, ?, ?)
-       ON CONFLICT (id) DO UPDATE SET data = excluded.data`,
-    )
-    const remove = this.sql.prepare(`DELETE FROM ${table} WHERE id = ?`)
+  private diffTable(table: Table, state: TableState, rows: Row[], changes: Changes) {
+    const upserts: StoredRow[] = []
     // New records before the first saved one were added at the front.
     const firstKnown = rows.findIndex((r) => state.written.has(r.id))
     const frontSeq = state.minSeq
@@ -164,39 +192,51 @@ export class Store {
         state.minSeq = Math.min(state.minSeq, seq)
         state.maxSeq = Math.max(state.maxSeq, seq)
       }
-      upsert.run(row.id, seq, json)
+      upserts.push({ id: row.id, seq, data: json })
       state.written.set(row.id, json)
     })
-    for (const id of [...state.written.keys()]) {
-      if (!seen.has(id)) {
-        remove.run(id)
-        state.written.delete(id)
-      }
+    const deletes = [...state.written.keys()].filter((id) => !seen.has(id))
+    for (const id of deletes) state.written.delete(id)
+    if (upserts.length) changes.upserts[table] = upserts
+    if (deletes.length) changes.deletes[table] = deletes
+  }
+}
+
+/** Every meta value and record, in list order. */
+function fullChanges(meta: [string, string][], data: MockDb | null): Changes {
+  const changes: Changes = { meta, upserts: {}, deletes: {} }
+  if (!data) return changes
+  for (const [collection, table] of Object.entries(COLLECTIONS) as [Collection, Table][]) {
+    changes.upserts[table] = (data[collection] as Row[]).map((row, seq) => ({
+      id: row.id,
+      seq,
+      data: JSON.stringify(row),
+    }))
+  }
+  return changes
+}
+
+/**
+ * Copy one database into another, e.g. from this computer's SQLite file to a
+ * new Supabase project. The target must be empty.
+ */
+export async function copyDatabase(source: Backend, target: Backend): Promise<{ records: number }> {
+  try {
+    const from = await source.init()
+    const to = await target.init()
+    if (to.meta.settings || TABLES.some((t) => to.rows[t].length > 0))
+      throw new Error('The new database already has EMS data in it. Choose an empty one.')
+    const changes: Changes = {
+      meta: Object.entries(from.meta),
+      upserts: from.rows,
+      deletes: {},
     }
-  }
-
-  addSms(to: string, message: string): SmsMessage {
-    const sentAt = new Date().toISOString()
-    const result = this.sql
-      .prepare('INSERT INTO sms_outbox (sent_at, to_phone, message) VALUES (?, ?, ?)')
-      .run(sentAt, to, message)
-    return { id: Number(result.lastInsertRowid), sentAt, to, message }
-  }
-
-  listSms(limit = 50): SmsMessage[] {
-    return (
-      this.sql
-        .prepare('SELECT id, sent_at, to_phone, message FROM sms_outbox ORDER BY id DESC LIMIT ?')
-        .all(limit) as { id: number; sent_at: string; to_phone: string; message: string }[]
-    ).map((r) => ({ id: r.id, sentAt: r.sent_at, to: r.to_phone, message: r.message }))
-  }
-
-  /** A consistent copy of the whole database, safe to take while the app runs. */
-  backup(file: string) {
-    this.sql.prepare('VACUUM INTO ?').run(file)
-  }
-
-  close() {
-    this.sql.close()
+    await target.apply(changes)
+    for (const sms of (await source.listSms(1000)).reverse())
+      await target.addSms(sms.sentAt, sms.to, sms.message)
+    return { records: TABLES.reduce((n, t) => n + from.rows[t].length, 0) }
+  } finally {
+    await source.close()
+    await target.close()
   }
 }

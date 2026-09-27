@@ -6,6 +6,8 @@ export const config = {
   useMocks: import.meta.env.VITE_USE_MOCKS === 'true',
   /** Built into the licensed desktop app, talking to its local server. */
   desktop: import.meta.env.VITE_DESKTOP === 'true',
+  /** Served by an EMS server (web or desktop): licence, set-up and /system/ endpoints. */
+  emsServer: import.meta.env.VITE_EMS_SERVER === 'true' || import.meta.env.VITE_DESKTOP === 'true',
   /** Back office signs staff out after this much inactivity. */
   backOfficeIdleMs: 15 * 60 * 1000,
   /** Warning shown this long before the idle sign-out. */

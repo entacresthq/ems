@@ -135,7 +135,7 @@
 
       async function poll() {
         try {
-          const res = await fetch('/__sms.json', { cache: 'no-store' })
+          const res = await fetch('/__sms.json' + location.search, { cache: 'no-store' })
           const text = await res.text()
           if (text !== last) {
             last = text

@@ -1,0 +1,11 @@
+node_modules
+dist
+dist-web
+dist-desktop
+build
+release
+data
+.env
+.env.local
+*.sqlite
+*.sqlite-*

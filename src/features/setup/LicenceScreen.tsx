@@ -6,6 +6,7 @@ import { systemApi, systemKeys, type SystemStatus } from '@/api/system'
 import { TextArea } from '@/components/form/inputs'
 import { Alert } from '@/components/ui/Alert'
 import { Button } from '@/components/ui/Button'
+import { config } from '@/config'
 import { formatDate } from '@/lib/dates'
 import { SetupLayout } from './SetupLayout'
 
@@ -55,25 +56,28 @@ export function LicenceScreen({ status }: { status: SystemStatus }) {
       description="Enter the licence code you received from Entacrest when you bought EMS."
       aside={
         <div className="flex flex-col gap-4 text-sm">
-          <div>
-            <h2 className="font-semibold">This computer’s code</h2>
-            <p className="text-ink-2 mt-1">
-              Entacrest may ask for it to tie your licence to this computer.
-            </p>
-            <div className="mt-2 flex items-center gap-2">
-              <code className="bg-surface border-rule rounded border px-3 py-1.5 font-mono text-base tracking-wide">
-                {status.machineCode}
-              </code>
-              <Button
-                size="sm"
-                variant="ghost"
-                icon={<Copy className="size-4" aria-hidden />}
-                onClick={() => void copyMachineCode()}
-              >
-                {copied ? 'Copied' : 'Copy'}
-              </Button>
+          {/* Web licences aren't tied to a machine; the server's code means nothing to buyers. */}
+          {config.desktop && (
+            <div>
+              <h2 className="font-semibold">This computer’s code</h2>
+              <p className="text-ink-2 mt-1">
+                Entacrest may ask for it to tie your licence to this computer.
+              </p>
+              <div className="mt-2 flex items-center gap-2">
+                <code className="bg-surface border-rule rounded border px-3 py-1.5 font-mono text-base tracking-wide">
+                  {status.machineCode}
+                </code>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  icon={<Copy className="size-4" aria-hidden />}
+                  onClick={() => void copyMachineCode()}
+                >
+                  {copied ? 'Copied' : 'Copy'}
+                </Button>
+              </div>
             </div>
-          </div>
+          )}
           <div>
             <h2 className="font-semibold">Need a licence?</h2>
             <p className="text-ink-2 mt-1">

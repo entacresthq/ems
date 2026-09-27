@@ -10,7 +10,6 @@ import {
   issueAccess,
   issueRefresh,
   readRefresh,
-  REFRESH_COOKIE,
   REFRESH_TTL_S,
   serialize,
   toAuthUser,
@@ -33,7 +32,7 @@ const MAX_OTP_ATTEMPTS = 5
 // A mock running in the browser can't set HttpOnly cookies, so the demo leaves the
 // flag off. The desktop server sets it. The Django backend must also add Secure.
 const refreshCookie = (value: string, maxAge: number) =>
-  `${REFRESH_COOKIE}=${value}; Path=/; Max-Age=${maxAge}; SameSite=Strict${platform().live ? '; HttpOnly' : ''}`
+  `${platform().sessionCookie}=${value}; Path=/; Max-Age=${maxAge}; SameSite=Strict${platform().live ? '; HttpOnly' : ''}`
 
 function newChallenge(staff: StaffRecord) {
   const id = crypto.randomUUID()
@@ -166,7 +165,7 @@ export const authHandlers = [
 
   http.post(api('/auth/token/refresh/'), async ({ cookies }) => {
     await delay(150)
-    const staff = readRefresh(cookies[REFRESH_COOKIE])
+    const staff = readRefresh(cookies[platform().sessionCookie])
     if (!staff) {
       return HttpResponse.json(
         { detail: 'Token is invalid or expired', code: 'token_not_valid' },

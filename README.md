@@ -37,47 +37,105 @@ To try the field app on a phone, run `npm run dev -- --host` and open `http://<y
 
 ## Scripts
 
-| Script                    | What it does                                                                  |
-| ------------------------- | ----------------------------------------------------------------------------- |
-| `npm run dev`             | Dev server with mocks and hot reload                                          |
-| `npm run build`           | Type-check, then build to `dist/`, including the service worker and PWA icons |
-| `npm run preview`         | Serve the production build                                                    |
-| `npm run typecheck`       | TypeScript only                                                               |
-| `npm run lint`            | ESLint                                                                        |
-| `npm run format`          | Prettier                                                                      |
-| `npm test`                | Vitest: unit tests, seed integrity and the sign-in flow against the mock API  |
-| `npm run desktop`         | Build the desktop app (web app and EMS server) and open it in Electron        |
-| `npm run licence -- …`    | Entacrest licence tool: `keygen`, `issue`, `verify`                           |
-| `npm run desktop:package` | Build the Windows installer, `release/EMS-Setup-<version>.exe`                |
+| Script                    | What it does                                                                         |
+| ------------------------- | ------------------------------------------------------------------------------------ |
+| `npm run dev`             | Browser demo with mocks and hot reload                                               |
+| `npm run build`           | Type-check, then build the browser demo to `dist/`                                   |
+| `npm run preview`         | Serve the browser demo build                                                         |
+| `npm run typecheck`       | TypeScript only                                                                      |
+| `npm run lint`            | ESLint                                                                               |
+| `npm run format`          | Prettier                                                                             |
+| `npm test`                | Vitest: unit tests, the mock API, and the EMS server on SQLite and PostgreSQL        |
+| `npm run web:build`       | Build a web deployment: the app to `dist-web/` and the EMS server to `build/server/` |
+| `npm run web:start`       | Run the EMS server for a web deployment (see "Deploying EMS")                        |
+| `npm run desktop`         | Build the desktop app and open it in Electron                                        |
+| `npm run desktop:package` | Build the Windows installer, `release/EMS-Setup-<version>.exe`                       |
+| `npm run licence -- …`    | Entacrest licence tool: `keygen`, `issue`, `verify`                                  |
 
-## Desktop app (Windows, licensed)
+## Deploying EMS
 
-A licensed, installable EMS for one office, with its own database. It locks until a licence code from Entacrest is entered, then walks the buyer through set-up.
+One codebase gives three ways to deliver EMS to an organisation. Pick one, or combine them.
 
-**How it works**
+| Deployment              | Who uses it                                            | Where the data lives                           |
+| ----------------------- | ------------------------------------------------------ | ---------------------------------------------- |
+| **Web**                 | Every branch, head office and officers' phones, by URL | Supabase (PostgreSQL), or SQLite on the server |
+| **Desktop, standalone** | One office on one computer                             | SQLite on that computer, or Supabase           |
+| **Desktop, connected**  | Staff who prefer an installed app                      | The organisation's web deployment              |
 
-- `electron/main.cjs` starts the **EMS server** (`src/server`, bundled to `electron/build/server.cjs`) and serves the web app (`dist-desktop/`, built with `.env.desktop`) next to it on `127.0.0.1:47821`.
-- The server answers the same `/api/v1` endpoints the Django backend will, using the business rules in `src/mocks/handlers`. Its data lives in **SQLite** at `%APPDATA%\EMS\data\ems.sqlite`: one table per collection, one row per record, stored as JSON so it can be queried with `json_extract`. Changes are written in a transaction after every request. `src/mocks/platform.ts` swaps the demo behaviour for live behaviour:
+"Both" for one organisation means a web deployment plus desktop installs set to **connected**, so everyone shares one set of data.
 
-  | Area           | Browser demo              | Desktop app                                                 |
-  | -------------- | ------------------------- | ----------------------------------------------------------- |
-  | Passwords      | Plain text                | scrypt hashes                                               |
-  | Session tokens | Unsigned                  | HMAC-SHA256 signed; the refresh cookie is `HttpOnly`        |
-  | Sign-in codes  | Always `123456`           | Random 6-digit codes                                        |
-  | Text messages  | Not sent                  | Written to an SMS outbox and shown as Windows notifications |
-  | Data           | IndexedDB, reset each day | SQLite, kept                                                |
+### The EMS server
 
-- **First run:** **Activate** (licence code) → **Set up** (business details, the MD's account, and either no data or sample training data) → **Sign in**.
+Every deployment runs the **EMS server** (`src/server`). It answers the same `/api/v1` endpoints the Django backend will, using the business rules in `src/mocks/handlers`, and serves the web app from the same address.
+
+- **Storage.** The app works on its data in memory. After every request the server writes what changed in one transaction, and replies only once the write is saved. There is one table per collection and one row per record, with the record as JSON (`jsonb` in PostgreSQL), so it can be queried in SQL.
+- **One server per database.** In PostgreSQL the server holds an advisory lock, so a second server pointed at the same database refuses to start instead of overwriting the first one's work. More users means more people using the one server, not more servers.
+- **Live behaviour.** `src/mocks/platform.ts` swaps the demo behaviour for live behaviour:
+
+  | Area           | Browser demo              | EMS server                                                            |
+  | -------------- | ------------------------- | --------------------------------------------------------------------- |
+  | Passwords      | Plain text                | scrypt hashes                                                         |
+  | Session tokens | Unsigned                  | HMAC-SHA256 signed; the cookie is `HttpOnly`, and `Secure` over HTTPS |
+  | Sign-in codes  | Always `123456`           | Random 6-digit codes (`123456` in a demo workspace)                   |
+  | Text messages  | Not sent                  | Kept in an SMS outbox; sent through Termii or Africa's Talking if set |
+  | Data           | IndexedDB, reset each day | SQLite or PostgreSQL, kept                                            |
+
+- **First run.** **Activate** (licence code) → **Set up** (business details and the MD's account) → **Sign in**. Live data always starts empty.
+
+### Web deployment
+
+```bash
+npm run web:build
+DATABASE_URL="postgresql://…" npm run web:start       # or with Docker: see Dockerfile
+```
+
+Put it behind HTTPS: Render, Railway and Fly provide HTTPS automatically, or use nginx or Caddy on a server. Settings, all environment variables:
+
+| Variable               | Meaning                                                                                                                                                  |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`         | PostgreSQL / Supabase connection string. Without it, SQLite files are kept in `EMS_DATA_DIR`.                                                            |
+| `EMS_DB_SCHEMA`        | Schema for the tables (default `ems`). Use another, e.g. `ems_demo`, to run a second server on one database.                                             |
+| `DATABASE_CA_CERT`     | Supabase's CA certificate (PEM text or file path) to verify the database. Without it the connection is encrypted but unverified.                         |
+| `EMS_DATA_DIR`         | Folder for SQLite (default `./data`). Mount a volume here.                                                                                               |
+| `PORT`                 | Port (default 8080).                                                                                                                                     |
+| `EMS_TRUST_PROXY=true` | Behind an HTTPS proxy: trust `X-Forwarded-Proto` for secure cookies and HSTS.                                                                            |
+| `EMS_MODE=demo`        | A demo server: sample data, demo accounts, code `123456`. Give it its own schema or data folder.                                                         |
+| `EMS_SMS_PROVIDER`     | `termii` (`TERMII_API_KEY`, `TERMII_SENDER_ID`), `africastalking` (`AT_USERNAME`, `AT_API_KEY`, `AT_SENDER_ID`), or `outbox` (default: nothing is sent). |
+| `EMS_OUTBOX_KEY`       | Opens the SMS outbox at `/__sms?key=…`. Off without it. Useful before SMS is connected.                                                                  |
+| `EMS_WEB_ROOT`         | The built app (default `./dist-web`).                                                                                                                    |
+
+- `GET /healthz` answers `ok`, for uptime checks.
+- Web deployments get the field app's service worker, so officers can install it on Android and collect offline.
+- Issue web licences **without** `--machine`: servers and containers don't keep a fixed machine code.
+
+### Supabase
+
+1. Create a project at supabase.com, in the region closest to your users.
+2. Open **Connect** and copy the **Session pooler** connection string (port 5432). Put your database password in it. The session pooler is needed because the EMS server holds a lock for as long as it runs; the transaction pooler (port 6543) doesn't keep that lock.
+3. Use it as `DATABASE_URL` for a web deployment, or in the desktop app under **File → Connection settings…**.
+4. Optional: download the CA certificate (**Project Settings → Database → SSL**) and set `DATABASE_CA_CERT`.
+
+- On first start EMS creates its tables in the `ems` schema. Supabase's Data API only publishes the `public` schema, and row-level security is switched on with no policies, so the tables can only be reached through the EMS server's database user.
+- EMS doesn't use Supabase Auth. Staff sign in through EMS, with its own passwords, SMS codes and permissions.
+- Backups: Supabase takes daily backups on paid plans, with point-in-time recovery as an add-on. The desktop app's **Back up live data…** also works with Supabase and writes a SQLite copy.
+
+### Desktop app (Windows)
+
+- Built with `.env.desktop`.
+- `electron/main.cjs` runs **two workspaces side by side**, each its own EMS server process on its own local address, with separate data, sign-in cookies and field-app storage:
+  - **Live:** `127.0.0.1:47821`. This computer's SQLite file (`%APPDATA%\EMS\data\ems.sqlite`), a Supabase database, or the organisation's web deployment. Choose under **File → Connection settings…**. Moving from this computer to Supabase can copy the existing data across.
+  - **Demo:** `127.0.0.1:47822`, `demo.sqlite`. Sample data with the demo accounts (password `Demo@2026`, code `123456`) and a "Demo workspace" banner. It is set up automatically the first time it opens. **File → Demo workspace → Reset demo data** starts it again; live data is never touched.
+- The licence is shared by both workspaces (`data\licence.key`).
 - **Menus:**
-  - **File → Field app (phone size)** (Ctrl+2): the officer app.
-  - **File → SMS outbox** (Ctrl+3): every text EMS would send, including sign-in codes.
-  - **File → Back up data…**: a consistent copy of the database.
-  - **Help → Licence details**.
-  - **Help → Erase EMS on this computer…**: back to the licence screen, for testing.
+  - **File → Back office / Field app / SMS outbox** (Ctrl+1/2/3), and the same for the demo (Ctrl+Shift+1/2/3).
+  - **File → Back up live data…**
+  - **File → Connection settings…**
+  - **Help → Licence details**
+  - **Help → Erase EMS on this computer…**: removes the local data, licence and settings, but not the data in Supabase or on a server.
+- The database password is encrypted with Windows data protection.
+- To test beside an installed copy, set `EMS_USER_DATA` to another folder.
 - **Not live-ready yet:**
-  - There is no SMS provider, so codes appear in the outbox.
   - There are no password-reset emails; managers reset passwords from the staff page.
-  - Only this PC can reach the server. Phones on the office network would need HTTPS, because the field app's PIN uses browser crypto that needs a secure connection.
   - The installer isn't code-signed, so SmartScreen warns on first run (**More info → Run anyway**).
 
 ### Licences
@@ -104,6 +162,7 @@ npm run licence -- verify EMS-...
 - **Never commit the private key. Back it up.** Without it you can't issue codes that installed copies accept. Making a new key pair invalidates every licence already issued.
 - Every issued licence is logged in `issued.csv` beside the key.
 - After `keygen`, rebuild the app so it trusts the new public key.
+- Desktop licences can be tied to one computer with `--machine`. Web licences shouldn't be: containers don't keep a fixed machine code.
 
 ## Folder structure
 

@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { Spinner } from '@/components/ui/Spinner'
 import { useAuth } from '@/features/auth/AuthProvider'
+import { DemoBadge, DemoBanner } from '@/features/setup/DemoBanner'
 import { FieldDataProvider, useFieldData } from '@/features/field/FieldData'
 import { FieldLockGate } from '@/features/field/FieldLock'
 import { useOnlineStatus } from '@/hooks/useOnlineStatus'
@@ -39,9 +40,13 @@ function FieldFrame() {
 
   return (
     <div className="text-field flex min-h-dvh flex-col bg-white">
+      <DemoBanner />
       <header className="on-dark bg-ink sticky top-0 z-20 text-white">
         <div className="mx-auto flex h-14 max-w-xl items-center justify-between px-4">
-          <p className="text-lg font-semibold">{title}</p>
+          <p className="flex items-center gap-2 text-lg font-semibold">
+            {title}
+            <DemoBadge onDark />
+          </p>
           <ConnectionPill />
         </div>
       </header>

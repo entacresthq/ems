@@ -9,10 +9,10 @@ import { LicenceScreen } from './LicenceScreen'
 import { OnboardingScreen } from './OnboardingScreen'
 
 /**
- * The desktop app stays locked until a licence is entered and the business is
+ * An EMS server (desktop or web) stays locked until a licence is entered and the business is
  * set up. The server enforces this too; this just shows the right screen.
  */
-export function DesktopGate({ children }: { children: ReactNode }) {
+export function SetupGate({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient()
   const status = useQuery({
     queryKey: systemKeys.status,

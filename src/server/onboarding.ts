@@ -158,6 +158,13 @@ export function initialData(input: OnboardingInput): MockDb {
   return data
 }
 
+/** The demo workspace: the training data under the demo business name, ready to sign in. */
+export function demoData(): MockDb {
+  const data = sampleData()
+  data.settings.businessName = 'EMS demo (training data)'
+  return data
+}
+
 /** The training data set. Every sample account keeps the demo password. */
 function sampleData(): MockDb {
   const data = generateDb()

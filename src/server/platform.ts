@@ -23,19 +23,25 @@ export function livePlatform({
   secret,
   sendSms,
   branchLimit,
+  fixedOtp,
+  sessionCookie = 'ems_refresh',
 }: {
   /** Signs session tokens. Kept in the database, made at first start. */
   secret: string
   sendSms: (to: string, message: string) => void
   branchLimit: () => number | null
+  /** The demo workspace always uses the same sign-in code. */
+  fixedOtp?: string
+  sessionCookie?: string
 }): Platform {
   return {
     live: true,
     hashPassword,
     verifyPassword,
     sign: (data) => createHmac('sha256', secret).update(data).digest('base64url'),
-    otp: () => String(randomInt(0, 1_000_000)).padStart(6, '0'),
+    otp: () => fixedOtp ?? String(randomInt(0, 1_000_000)).padStart(6, '0'),
     sendSms,
     branchLimit,
+    sessionCookie,
   }
 }

@@ -1,6 +1,6 @@
 import { api } from './client'
 
-/** Licence and set-up state of the desktop app. Not available on the web backend. */
+/** Licence and set-up state of an EMS server (web or desktop). The Django backend won't have it. */
 export interface LicenceInfo {
   status: 'valid' | 'expired' | 'wrong_machine' | 'invalid'
   id?: string
@@ -15,11 +15,16 @@ export interface LicenceInfo {
 }
 
 export interface SystemStatus {
+  /** "demo": the training workspace, with sample data and the demo accounts. */
+  mode: 'live' | 'demo'
   licence: LicenceInfo | null
   /** Identifies this computer, for licences tied to one machine. */
   machineCode: string
   onboarded: boolean
   businessName: string | null
+  database: 'sqlite' | 'postgres'
+  /** "outbox" until an SMS provider is connected. */
+  sms: 'outbox' | 'termii' | 'africastalking'
 }
 
 export interface OnboardingRequest {

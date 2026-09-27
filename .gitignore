@@ -7,4 +7,5 @@ coverage
 .vite
 dist-desktop
 release
-electron/build
+build
+dist-web

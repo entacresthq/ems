@@ -6,7 +6,7 @@ import { PasswordInput, TextInput } from '@/components/form/inputs'
 import { Alert } from '@/components/ui/Alert'
 import { Button } from '@/components/ui/Button'
 import { PasswordChecklist, PASSWORD_RULES } from '@/features/auth/passwordRules'
-import { cn } from '@/lib/cn'
+import { config } from '@/config'
 import { formatDate } from '@/lib/dates'
 import { SetupLayout } from './SetupLayout'
 
@@ -29,10 +29,9 @@ export function OnboardingScreen({ status }: { status: SystemStatus }) {
     password: '',
   })
   const [confirm, setConfirm] = useState('')
-  const [sampleData, setSampleData] = useState(false)
   const [errors, setErrors] = useState<Errors>({})
   const [busy, setBusy] = useState(false)
-  const [done, setDone] = useState<{ email: string; sampleData: boolean } | null>(null)
+  const [done, setDone] = useState<{ email: string } | null>(null)
   const queryClient = useQueryClient()
 
   const submit = async (e: React.FormEvent) => {
@@ -45,7 +44,7 @@ export function OnboardingScreen({ status }: { status: SystemStatus }) {
     if (Object.keys(local).length) return
     setBusy(true)
     try {
-      setDone(await systemApi.onboard({ business, md, sampleData }))
+      setDone(await systemApi.onboard({ business, md, sampleData: false }))
     } catch (err) {
       if (isApiError(err))
         setErrors({
@@ -67,20 +66,28 @@ export function OnboardingScreen({ status }: { status: SystemStatus }) {
       >
         <div className="flex flex-col gap-4 text-sm">
           <p>
-            Each sign-in also needs a 6-digit code sent by text message. Until an SMS provider is
-            connected, the code appears in a notification on this computer and under{' '}
-            <strong>File → SMS outbox</strong>.
+            Each sign-in also needs a 6-digit code sent by text message.{' '}
+            {status.sms !== 'outbox' ? null : config.desktop ? (
+              <>
+                Until an SMS provider is connected, the code appears in a notification on this
+                computer and under <strong>File → SMS outbox</strong>.
+              </>
+            ) : (
+              <>
+                SMS isn’t connected yet, so codes are only kept in the server’s SMS outbox. Connect
+                an SMS provider before staff start using EMS.
+              </>
+            )}
           </p>
-          {done.sampleData ? (
+          <p>
+            Next, add your branches, then your staff, thrift plans and loan products. You’ll find
+            them under Administration and Lending.
+          </p>
+          {config.desktop && (
             <Alert tone="info">
-              The sample staff accounts (for example gm@ems.ng and officer@ems.ng) use the password
-              Demo@2026.
+              To practise first, open the demo workspace from <strong>File → Demo workspace</strong>
+              . It has sample branches, staff and customers and never touches your live data.
             </Alert>
-          ) : (
-            <p>
-              Next, add your branches, then your staff, thrift plans and loan products. You’ll find
-              them under Administration and Lending.
-            </p>
           )}
           <div>
             <Button
@@ -220,44 +227,6 @@ export function OnboardingScreen({ status }: { status: SystemStatus }) {
             onChange={(e) => setConfirm(e.target.value)}
             error={errors.confirm}
           />
-        </fieldset>
-
-        <fieldset>
-          <legend className="mb-3 text-base font-semibold">Start with</legend>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {[
-              {
-                value: false,
-                title: 'No data',
-                text: 'For going live. Add your own branches, staff, customers and products.',
-              },
-              {
-                value: true,
-                title: 'Sample data for training',
-                text: '5 branches, about 40 staff and 400 customers with 60 days of history. Don’t mix it with real records.',
-              },
-            ].map((o) => (
-              <label
-                key={o.title}
-                className={cn(
-                  'flex cursor-pointer gap-3 rounded border p-4 text-sm',
-                  sampleData === o.value ? 'border-ink bg-paper' : 'border-rule',
-                )}
-              >
-                <input
-                  type="radio"
-                  name="start-with"
-                  className="accent-ledger mt-0.5 size-4 shrink-0"
-                  checked={sampleData === o.value}
-                  onChange={() => setSampleData(o.value)}
-                />
-                <span>
-                  <span className="block font-medium">{o.title}</span>
-                  <span className="text-ink-2">{o.text}</span>
-                </span>
-              </label>
-            ))}
-          </div>
         </fieldset>
 
         <div>

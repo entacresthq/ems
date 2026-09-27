@@ -15,6 +15,7 @@ import { cn } from '@/lib/cn'
 import { hasPermission } from '@/lib/permissions'
 import { ROLE_LABELS } from '@/types'
 import { BACK_OFFICE_NAV, DESIGN_SYSTEM_ITEM } from './navigation'
+import { DemoBadge, DemoBanner } from '@/features/setup/DemoBanner'
 
 export function BackOfficeShell() {
   return (
@@ -78,6 +79,7 @@ function ShellFrame() {
       )}
 
       <div className="flex min-w-0 flex-col">
+        <DemoBanner />
         <TopBar onOpenMenu={() => setDrawerOpen(true)} />
         <main
           id="main"
@@ -192,6 +194,7 @@ function TopBar({ onOpenMenu }: { onOpenMenu: () => void }) {
         <MenuIcon className="size-5" aria-hidden />
       </button>
 
+      <DemoBadge />
       {scope.canSwitch ? (
         <label className="flex items-center gap-2 text-sm">
           <span className="text-ink-2 hidden sm:inline">Branch</span>

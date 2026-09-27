@@ -8,12 +8,15 @@ directories:
 # The web app and the EMS server are bundled already; the app needs no node_modules.
 files:
   - electron/main.cjs
-  - electron/sms-outbox.html
-  - electron/build/server.cjs
+  - electron/preload.cjs
+  - electron/connection.html
+  - build/server/*.cjs
   - dist-desktop/**
   - package.json
   - '!node_modules/**'
 npmRebuild: false
+# Server processes read their files from disk; keep them out of an asar archive.
+asar: false
 # Reuse the Electron already in node_modules instead of unpacking a fresh copy.
 electronDist: node_modules/electron/dist
 win:

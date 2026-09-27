@@ -1,140 +1,192 @@
-// EMS desktop app. Runs the EMS server (electron/build/server.cjs, built from
-// src/server) with its data in SQLite, serves the web app next to it on
-// 127.0.0.1, and shows both in app windows.
-const { app, BrowserWindow, Menu, Notification, dialog, session, shell } = require('electron')
+// EMS desktop app.
+//
+// Two workspaces run side by side, each its own EMS server process
+// (build/server/main.cjs) on its own local address, so their data, sign-ins and
+// field-app storage never mix:
+//   live  127.0.0.1:47821  this computer's SQLite, a Supabase/PostgreSQL
+//                          database, or (remote) the organisation's web server
+//   demo  127.0.0.1:47822  sample data for training, started when first opened
+// The licence is shared through a file in the data folder.
+const {
+  app,
+  BrowserWindow,
+  Menu,
+  Notification,
+  dialog,
+  ipcMain,
+  safeStorage,
+  session,
+  shell,
+  utilityProcess,
+} = require('electron')
 const fs = require('node:fs')
-const http = require('node:http')
 const path = require('node:path')
 
-const WEB_ROOT = path.join(__dirname, '..', 'dist-desktop')
-// A fixed port keeps the same origin between launches, so the field PIN and
-// the officer's offline data kept in browser storage survive a restart.
-const PREFERRED_PORT = 47821
+const APP_ROOT = path.join(__dirname, '..')
+const SERVER_MAIN = path.join(APP_ROOT, 'build', 'server', 'main.cjs')
+const SERVER_LIB = path.join(APP_ROOT, 'build', 'server', 'ems.cjs')
+const WEB_ROOT = path.join(APP_ROOT, 'dist-desktop')
+const ICON = path.join(WEB_ROOT, 'pwa-192x192.png')
 const PAPER = '#F6F4EE'
 
-const MIME = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.mjs': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json',
-  '.webmanifest': 'application/manifest+json',
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-  '.ico': 'image/x-icon',
-  '.woff': 'font/woff',
-  '.woff2': 'font/woff2',
-  '.txt': 'text/plain; charset=utf-8',
-}
+// A separate profile (data, licence, sign-ins), e.g. to test beside an installed copy.
+if (process.env.EMS_USER_DATA) app.setPath('userData', process.env.EMS_USER_DATA)
 
 const dataDir = () => path.join(app.getPath('userData'), 'data')
+const configFile = () => path.join(app.getPath('userData'), 'config.json')
 
-let ems = null
-let origin = ''
-let mainWindow = null
-let fieldWindow = null
-let smsWindow = null
+// ── Connection settings ─────────────────────────────────────────────────────
+// { live: { kind: 'sqlite' } | { kind: 'postgres', url, schema } | { kind: 'remote', url } }
+// Database passwords are encrypted with Windows' data protection (safeStorage).
 
-// ── Web server ──────────────────────────────────────────────────────────────
-
-async function readBody(req) {
-  const chunks = []
-  for await (const chunk of req) chunks.push(chunk)
-  return chunks.length ? Buffer.concat(chunks) : undefined
-}
-
-/** Hand an /api request to the EMS server and send back its answer. */
-async function serveApi(req, res) {
+function readConfig() {
   try {
-    const headers = new Headers()
-    for (const [key, value] of Object.entries(req.headers)) {
-      if (value !== undefined) headers.set(key, Array.isArray(value) ? value.join(', ') : value)
-    }
-    const hasBody = !['GET', 'HEAD'].includes(req.method ?? 'GET')
-    const response = await ems.handle(
-      new Request(origin + req.url, {
-        method: req.method,
-        headers,
-        body: hasBody ? await readBody(req) : undefined,
-      }),
-    )
-    const out = {}
-    response.headers.forEach((value, key) => {
-      if (key !== 'set-cookie') out[key] = value
-    })
-    const cookies = response.headers.getSetCookie()
-    if (cookies.length) out['set-cookie'] = cookies
-    res.writeHead(response.status, out)
-    res.end(Buffer.from(await response.arrayBuffer()))
-  } catch (error) {
-    console.error(error)
-    res.writeHead(500, { 'Content-Type': 'application/json' })
-    res.end(
-      JSON.stringify({
-        detail: 'Something went wrong in EMS. Try again, and restart EMS if it keeps happening.',
-        code: 'server_error',
-      }),
-    )
-  }
-}
-
-function serveFile(req, res) {
-  const url = new URL(req.url ?? '/', 'http://localhost')
-  const requested = path.normalize(path.join(WEB_ROOT, decodeURIComponent(url.pathname)))
-  if (!requested.startsWith(WEB_ROOT)) {
-    res.writeHead(403).end()
-    return
-  }
-  let file = requested
-  if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) {
-    // Client-side routes (/customers/…, /field/today) get the app shell.
-    if (path.extname(url.pathname)) {
-      res.writeHead(404).end()
-      return
-    }
-    file = path.join(WEB_ROOT, 'index.html')
-  }
-  res.writeHead(200, {
-    'Content-Type': MIME[path.extname(file).toLowerCase()] ?? 'application/octet-stream',
-    'Cache-Control': 'no-cache',
-  })
-  fs.createReadStream(file).pipe(res)
-}
-
-function serve(req, res) {
-  const pathname = (req.url ?? '/').split('?')[0]
-  if (pathname.startsWith('/api/')) return void serveApi(req, res)
-  if (pathname === '/__sms') {
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' })
-    return void fs.createReadStream(path.join(__dirname, 'sms-outbox.html')).pipe(res)
-  }
-  if (pathname === '/__sms.json') {
-    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
-    return void res.end(JSON.stringify(ems.listSms(30)))
-  }
-  serveFile(req, res)
-}
-
-function listen(port) {
-  return new Promise((resolve, reject) => {
-    const server = http.createServer(serve)
-    server.once('error', reject)
-    server.listen(port, '127.0.0.1', () => resolve(server.address().port))
-  })
-}
-
-async function startWebServer() {
-  try {
-    return await listen(PREFERRED_PORT)
+    const raw = JSON.parse(fs.readFileSync(configFile(), 'utf8'))
+    const live = raw.live ?? { kind: 'sqlite' }
+    if (live.kind === 'postgres' && live.urlEncrypted)
+      live.url = safeStorage.decryptString(Buffer.from(live.urlEncrypted, 'base64'))
+    return { live }
   } catch {
-    // Something else holds the port. Run anyway; offline field data won't carry over.
-    return listen(0)
+    return { live: { kind: 'sqlite' } }
   }
+}
+
+function writeConfig(config) {
+  const live = { ...config.live }
+  if (live.kind === 'postgres' && safeStorage.isEncryptionAvailable()) {
+    live.urlEncrypted = safeStorage.encryptString(live.url).toString('base64')
+    delete live.url
+  }
+  fs.mkdirSync(path.dirname(configFile()), { recursive: true })
+  fs.writeFileSync(configFile(), JSON.stringify({ live }, null, 2))
+}
+
+let config = null
+
+// ── Workspaces ──────────────────────────────────────────────────────────────
+
+const workspaces = {
+  live: { name: 'live', label: 'EMS', port: 47821, child: null, origin: null, starting: null },
+  demo: { name: 'demo', label: 'EMS demo', port: 47822, child: null, origin: null, starting: null },
+}
+const windows = new Map()
+let requestId = 0
+const pending = new Map()
+let quitting = false
+
+function isRemote(ws) {
+  return ws.name === 'live' && config.live.kind === 'remote'
+}
+
+/** Start the workspace's server if needed; resolves with its address. */
+function ensureStarted(ws) {
+  if (isRemote(ws)) return Promise.resolve(config.live.url.replace(/\/+$/, ''))
+  if (ws.origin) return Promise.resolve(ws.origin)
+  if (ws.starting) return ws.starting
+  const env = { ...process.env }
+  delete env.ELECTRON_RUN_AS_NODE
+  Object.assign(env, {
+    EMS_MODE: ws.name,
+    EMS_HOST: '127.0.0.1',
+    EMS_PORT: String(ws.port),
+    EMS_PORT_FALLBACK: 'true',
+    EMS_WEB_ROOT: WEB_ROOT,
+    EMS_DATA_DIR: dataDir(),
+    EMS_LICENCE_FILE: path.join(dataDir(), 'licence.key'),
+    EMS_OUTBOX: 'open',
+  })
+  delete env.DATABASE_URL
+  if (ws.name === 'live' && config.live.kind === 'postgres') {
+    env.DATABASE_URL = config.live.url
+    env.EMS_DB_SCHEMA = config.live.schema || 'ems'
+  }
+  ws.starting = new Promise((resolve, reject) => {
+    const child = utilityProcess.fork(SERVER_MAIN, [], {
+      env,
+      serviceName: `EMS ${ws.name} server`,
+      stdio: 'pipe',
+    })
+    ws.child = child
+    let failure = ''
+    child.stdout?.on('data', (d) => process.stdout.write(`[${ws.name}] ${d}`))
+    child.stderr?.on('data', (d) => {
+      failure += d
+      process.stderr.write(`[${ws.name}] ${d}`)
+    })
+    child.on('message', (message) => {
+      if (message.type === 'ready') {
+        ws.origin = `http://127.0.0.1:${message.port}`
+        resolve(ws.origin)
+      } else if (message.type === 'failed') {
+        failure = message.message
+      } else if (message.type === 'sms') {
+        notifySms(ws, message.sms)
+      } else if (message.id && pending.has(message.id)) {
+        pending.get(message.id)(message)
+        pending.delete(message.id)
+      }
+    })
+    child.on('exit', (code) => {
+      const wasRunning = Boolean(ws.origin)
+      ws.child = null
+      ws.origin = null
+      ws.starting = null
+      if (!wasRunning) {
+        reject(new Error(failure.trim() || `The ${ws.name} server stopped (code ${code}).`))
+        return
+      }
+      if (!quitting && !ws.stopping) {
+        dialog.showErrorBox(
+          `EMS ${ws.name === 'demo' ? 'demo workspace' : ''} stopped`,
+          `EMS stopped to protect your data.\n\n${failure.trim().split('\n').slice(-3).join('\n')}\n\nIt will start again when you reopen a window.`,
+        )
+        closeWindows(ws)
+      }
+      ws.stopping = false
+    })
+  })
+  ws.starting.catch(() => {
+    ws.starting = null
+  })
+  return ws.starting
+}
+
+function stopWorkspace(ws) {
+  const child = ws.child
+  if (!child) return Promise.resolve()
+  ws.stopping = true
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      child.kill()
+      resolve()
+    }, 5000)
+    child.once('exit', () => {
+      clearTimeout(timer)
+      resolve()
+    })
+    child.postMessage({ type: 'shutdown' })
+  })
+}
+
+/** Ask a workspace's server something (status, backup). */
+function ask(ws, message) {
+  return new Promise((resolve, reject) => {
+    if (!ws.child) return reject(new Error('That workspace isn’t running.'))
+    const id = ++requestId
+    pending.set(id, resolve)
+    ws.child.postMessage({ ...message, id })
+  })
+}
+
+function notifySms(ws, sms) {
+  if (!Notification.isSupported()) return
+  const title = `${ws.name === 'demo' ? 'Demo: ' : ''}SMS to ${sms.to}`
+  new Notification({ title, body: sms.message }).show()
 }
 
 // ── Windows ─────────────────────────────────────────────────────────────────
 
-function keepLinksInApp(win) {
+function keepLinksInApp(win, origin) {
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith(origin)) return { action: 'allow' }
     void shell.openExternal(url)
@@ -148,83 +200,234 @@ function keepLinksInApp(win) {
   })
 }
 
-function createWindow({ route, width, height, minWidth, minHeight, title }) {
-  const win = new BrowserWindow({
-    width,
-    height,
-    minWidth,
-    minHeight,
-    title,
-    backgroundColor: PAPER,
-    show: false,
-    icon: path.join(WEB_ROOT, 'pwa-192x192.png'),
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
-  })
-  keepLinksInApp(win)
-  win.once('ready-to-show', () => win.show())
-  void win.loadURL(origin + route)
-  return win
-}
-
-function openBackOffice() {
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.focus()
-    return
-  }
-  mainWindow = createWindow({
-    route: '/',
-    width: 1360,
-    height: 880,
-    minWidth: 1024,
-    minHeight: 640,
-    title: 'EMS',
-  })
-  mainWindow.maximize()
-}
-
-/** The officer app at phone size, as it looks on an Android phone. */
-function openFieldApp() {
-  if (fieldWindow && !fieldWindow.isDestroyed()) {
-    fieldWindow.focus()
-    return
-  }
-  fieldWindow = createWindow({
+const VIEWS = {
+  office: { route: '/', width: 1360, height: 880, minWidth: 1024, minHeight: 640, title: '' },
+  field: {
     route: '/field/today',
     width: 412,
     height: 860,
     minWidth: 360,
     minHeight: 600,
-    title: 'EMS Field',
-  })
-}
-
-/** Text messages EMS has "sent". Stands in for an SMS provider while testing. */
-function openSmsOutbox() {
-  if (smsWindow && !smsWindow.isDestroyed()) {
-    smsWindow.focus()
-    return
-  }
-  smsWindow = new BrowserWindow({
+    title: ' Field',
+  },
+  sms: {
+    route: '/__sms',
     width: 440,
     height: 640,
-    title: 'EMS SMS outbox',
+    minWidth: 360,
+    minHeight: 400,
+    title: ' SMS outbox',
+  },
+}
+
+async function open(wsName, view) {
+  const ws = workspaces[wsName]
+  const key = `${wsName}:${view}`
+  const existing = windows.get(key)
+  if (existing && !existing.isDestroyed()) {
+    existing.focus()
+    return
+  }
+  if (view === 'sms' && isRemote(ws)) {
+    await dialog.showMessageBox({
+      type: 'info',
+      title: 'SMS outbox',
+      message: 'Text messages are sent by your organisation’s EMS server.',
+      detail: 'Ask the person who runs it for the SMS outbox link.',
+    })
+    return
+  }
+  let origin
+  try {
+    origin = await ensureStarted(ws)
+  } catch (error) {
+    dialog.showErrorBox(
+      'EMS couldn’t start',
+      `${error.message}\n\nCheck File → Connection settings.`,
+    )
+    return
+  }
+  const spec = VIEWS[view]
+  const win = new BrowserWindow({
+    width: spec.width,
+    height: spec.height,
+    minWidth: spec.minWidth,
+    minHeight: spec.minHeight,
+    title: ws.label + spec.title,
     backgroundColor: PAPER,
-    icon: path.join(WEB_ROOT, 'pwa-192x192.png'),
+    show: false,
+    icon: ICON,
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
   })
-  smsWindow.setMenuBarVisibility(false)
-  void smsWindow.loadURL(`${origin}/__sms`)
+  if (view === 'sms') win.setMenuBarVisibility(false)
+  keepLinksInApp(win, origin)
+  win.once('ready-to-show', () => {
+    if (view === 'office') win.maximize()
+    win.show()
+  })
+  win.on('closed', () => {
+    if (windows.get(key) === win) windows.delete(key)
+  })
+  windows.set(key, win)
+  void win.loadURL(origin + spec.route)
 }
+
+function closeWindows(ws) {
+  for (const [key, win] of windows) {
+    if (!key.startsWith(`${ws.name}:`)) continue
+    // Forget it now: it finishes closing later, and must not be mistaken for an open window.
+    windows.delete(key)
+    if (!win.isDestroyed()) win.close()
+  }
+}
+
+/** Keep EMS running while windows are swapped, e.g. when changing the connection. */
+let busy = 0
+async function whileBusy(task) {
+  busy += 1
+  try {
+    return await task()
+  } finally {
+    busy -= 1
+    if (busy === 0 && BrowserWindow.getAllWindows().length === 0) app.quit()
+  }
+}
+
+// ── Connection settings window ──────────────────────────────────────────────
+
+let connectionWindow = null
+
+function openConnectionSettings() {
+  if (connectionWindow && !connectionWindow.isDestroyed()) {
+    connectionWindow.focus()
+    return
+  }
+  connectionWindow = new BrowserWindow({
+    width: 620,
+    height: 760,
+    title: 'EMS connection settings',
+    backgroundColor: PAPER,
+    icon: ICON,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      preload: path.join(__dirname, 'preload.cjs'),
+    },
+  })
+  connectionWindow.setMenuBarVisibility(false)
+  void connectionWindow.loadFile(path.join(__dirname, 'connection.html'))
+}
+
+function serverLib() {
+  return require(SERVER_LIB)
+}
+
+async function testConnection(next) {
+  if (next.kind === 'sqlite') return { ok: true, message: 'EMS keeps its data on this computer.' }
+  if (next.kind === 'remote') {
+    let url
+    try {
+      url = new URL(next.url)
+    } catch {
+      return { ok: false, message: 'Enter the full address, e.g. https://ems.yourcompany.ng' }
+    }
+    try {
+      const res = await fetch(new URL('/api/v1/system/status/', url), {
+        signal: AbortSignal.timeout(10000),
+      })
+      const status = await res.json()
+      if (!res.ok || typeof status.onboarded !== 'boolean') throw new Error('not EMS')
+      return {
+        ok: true,
+        message: `Connected to ${status.business_name ?? 'an EMS server that isn’t set up yet'}.`,
+      }
+    } catch {
+      return { ok: false, message: 'No EMS server answered at that address.' }
+    }
+  }
+  // PostgreSQL / Supabase. The live server may be holding this very database.
+  if (
+    config.live.kind === 'postgres' &&
+    config.live.url === next.url &&
+    (config.live.schema || 'ems') === (next.schema || 'ems')
+  )
+    return { ok: true, message: 'EMS is already using this database.' }
+  let backend
+  try {
+    backend = serverLib().postgresBackend(next.url, next.schema || 'ems')
+    await backend.init()
+    return {
+      ok: true,
+      message: `Connected. EMS will keep its tables in the "${next.schema || 'ems'}" schema.`,
+    }
+  } catch (error) {
+    return { ok: false, message: error.message }
+  } finally {
+    await backend?.close().catch(() => undefined)
+  }
+}
+
+function saveConnection(next, options) {
+  return whileBusy(() => switchConnection(next, options))
+}
+
+async function switchConnection(next, { copy }) {
+  const live = workspaces.live
+  await stopWorkspace(live)
+  closeWindows(live)
+  try {
+    if (next.kind === 'postgres' && copy && config.live.kind === 'sqlite') {
+      const lib = serverLib()
+      const file = path.join(dataDir(), 'ems.sqlite')
+      if (fs.existsSync(file)) {
+        const { records } = await lib.copyDatabase(
+          new lib.SqliteBackend(file),
+          lib.postgresBackend(next.url, next.schema || 'ems'),
+        )
+        await dialog.showMessageBox({
+          type: 'info',
+          title: 'Data copied',
+          message: `${records.toLocaleString()} records copied to the new database.`,
+          detail: 'EMS now uses that database. This computer keeps its old copy as a backup.',
+        })
+      }
+    }
+    config = { live: next }
+    writeConfig(config)
+    await open('live', 'office')
+    return { ok: true }
+  } catch (error) {
+    // Put the old connection back.
+    await open('live', 'office').catch(() => undefined)
+    return { ok: false, message: error.message }
+  }
+}
+
+ipcMain.handle('connection:get', () => {
+  const { live } = config
+  // The database password stays in the main process.
+  const shown =
+    live.kind === 'postgres'
+      ? { kind: 'postgres', host: new URL(live.url).hostname, schema: live.schema || 'ems' }
+      : live
+  return { live: shown, hasLocalData: fs.existsSync(path.join(dataDir(), 'ems.sqlite')) }
+})
+ipcMain.handle('connection:test', (_event, next) => testConnection(next))
+ipcMain.handle('connection:save', (_event, next, options) => saveConnection(next, options ?? {}))
 
 // ── Menu actions ────────────────────────────────────────────────────────────
 
-function onSms(sms) {
-  if (Notification.isSupported()) {
-    new Notification({ title: `SMS to ${sms.to}`, body: sms.message, silent: false }).show()
-  }
-}
-
 async function backUp() {
+  const live = workspaces.live
+  if (isRemote(live)) {
+    await dialog.showMessageBox({
+      type: 'info',
+      title: 'Backups',
+      message: 'Your organisation’s EMS server keeps the data, so back it up there.',
+    })
+    return
+  }
   const stamp = new Date().toISOString().slice(0, 10)
   const { canceled, filePath } = await dialog.showSaveDialog({
     title: 'Back up EMS data',
@@ -233,21 +436,62 @@ async function backUp() {
   })
   if (canceled || !filePath) return
   try {
+    await ensureStarted(live)
     fs.rmSync(filePath, { force: true })
-    ems.backup(filePath)
+    const reply = await ask(live, { type: 'backup', file: filePath })
+    if (reply.type === 'error') throw new Error(reply.message)
     await dialog.showMessageBox({
       type: 'info',
       title: 'Backup saved',
       message: 'Your EMS data is backed up.',
-      detail: `${filePath}\n\nKeep a copy somewhere other than this computer, such as a USB drive or cloud storage.`,
+      detail: `${filePath}\n\nKeep a copy somewhere other than this computer, such as a USB drive or Google Drive.`,
     })
   } catch (error) {
     dialog.showErrorBox('Backup failed', String(error?.message ?? error))
   }
 }
 
+function resetDemo() {
+  return whileBusy(resetDemoWorkspace)
+}
+
+async function resetDemoWorkspace() {
+  const { response } = await dialog.showMessageBox({
+    type: 'warning',
+    buttons: ['Reset demo data', 'Cancel'],
+    defaultId: 1,
+    cancelId: 1,
+    title: 'Reset demo data',
+    message: 'Start the demo workspace again with fresh sample data?',
+    detail: 'Everything done in the demo workspace is removed. Your live data isn’t touched.',
+  })
+  if (response !== 0) return
+  const demo = workspaces.demo
+  closeWindows(demo)
+  await stopWorkspace(demo)
+  for (const suffix of ['', '-wal', '-shm'])
+    fs.rmSync(path.join(dataDir(), `demo.sqlite${suffix}`), { force: true })
+  await session.defaultSession.clearStorageData({ origin: `http://127.0.0.1:${demo.port}` })
+  await open('demo', 'office')
+}
+
 async function showLicence() {
-  const { licence, machineCode, businessName } = ems.status()
+  let status
+  try {
+    const live = workspaces.live
+    if (isRemote(live)) {
+      const res = await fetch(new URL('/api/v1/system/status/', config.live.url))
+      const body = await res.json()
+      status = { ...body, businessName: body.business_name, machineCode: body.machine_code }
+    } else {
+      await ensureStarted(live)
+      status = (await ask(live, { type: 'status' })).status
+    }
+  } catch (error) {
+    dialog.showErrorBox('Licence details', error.message)
+    return
+  }
+  const { licence } = status
   const lines = licence
     ? [
         `Licence: ${licence.id ?? '—'}`,
@@ -258,11 +502,17 @@ async function showLicence() {
         `Status: ${licence.status}`,
       ]
     : ['No licence entered yet.']
+  const where =
+    config.live.kind === 'remote'
+      ? `Connected to ${config.live.url}`
+      : config.live.kind === 'postgres'
+        ? 'Data: Supabase / PostgreSQL'
+        : `Data: ${path.join(dataDir(), 'ems.sqlite')}`
   await dialog.showMessageBox({
     type: 'info',
     title: 'EMS licence',
-    message: businessName ?? 'EMS licence',
-    detail: [...lines, '', `This computer’s code: ${machineCode}`].join('\n'),
+    message: status.businessName ?? 'EMS licence',
+    detail: [...lines, '', where, `This computer’s code: ${status.machineCode ?? '—'}`].join('\n'),
   })
 }
 
@@ -273,9 +523,9 @@ async function eraseInstallation() {
     defaultId: 1,
     cancelId: 1,
     title: 'Erase EMS on this computer',
-    message: 'Erase all EMS data and the licence on this computer?',
+    message: 'Erase all EMS data, the licence and the connection settings on this computer?',
     detail:
-      'Every customer, account, loan, transaction, staff member and setting is deleted, and EMS goes back to asking for a licence. Back up first if you might need the data.',
+      'Every customer, account, loan, transaction, staff member and setting kept on this computer is deleted, including the demo workspace, and EMS goes back to asking for a licence. Data in a Supabase database or on your organisation’s server is not deleted. Back up first if you might need the data.',
   })
   if (first.response !== 0) return
   const second = await dialog.showMessageBox({
@@ -287,8 +537,10 @@ async function eraseInstallation() {
     message: 'This can’t be undone. Erase now?',
   })
   if (second.response !== 0) return
-  ems.close()
+  quitting = true
+  await Promise.all(Object.values(workspaces).map(stopWorkspace))
   fs.rmSync(dataDir(), { recursive: true, force: true })
+  fs.rmSync(configFile(), { force: true })
   await session.defaultSession.clearStorageData()
   app.relaunch()
   app.exit(0)
@@ -299,12 +551,40 @@ function buildMenu() {
     {
       label: 'File',
       submenu: [
-        { label: 'Back office', accelerator: 'CmdOrCtrl+1', click: openBackOffice },
-        { label: 'Field app (phone size)', accelerator: 'CmdOrCtrl+2', click: openFieldApp },
-        { label: 'SMS outbox', accelerator: 'CmdOrCtrl+3', click: openSmsOutbox },
+        { label: 'Back office', accelerator: 'CmdOrCtrl+1', click: () => open('live', 'office') },
+        {
+          label: 'Field app (phone size)',
+          accelerator: 'CmdOrCtrl+2',
+          click: () => open('live', 'field'),
+        },
+        { label: 'SMS outbox', accelerator: 'CmdOrCtrl+3', click: () => open('live', 'sms') },
         { type: 'separator' },
-        { label: 'Back up data…', click: () => void backUp() },
+        {
+          label: 'Demo workspace',
+          submenu: [
+            {
+              label: 'Demo back office',
+              accelerator: 'CmdOrCtrl+Shift+1',
+              click: () => open('demo', 'office'),
+            },
+            {
+              label: 'Demo field app',
+              accelerator: 'CmdOrCtrl+Shift+2',
+              click: () => open('demo', 'field'),
+            },
+            {
+              label: 'Demo SMS outbox',
+              accelerator: 'CmdOrCtrl+Shift+3',
+              click: () => open('demo', 'sms'),
+            },
+            { type: 'separator' },
+            { label: 'Reset demo data…', click: () => void resetDemo() },
+          ],
+        },
+        { type: 'separator' },
+        { label: 'Back up live data…', click: () => void backUp() },
         { label: 'Open data folder', click: () => void shell.openPath(dataDir()) },
+        { label: 'Connection settings…', click: openConnectionSettings },
         { type: 'separator' },
         { role: 'quit', label: 'Exit' },
       ],
@@ -334,7 +614,7 @@ function buildMenu() {
             dialog.showMessageBox({
               title: 'About EMS',
               message: `Entacrest MFB Solution (EMS) ${app.getVersion()}`,
-              detail: `An Entacrest Nexus product.\n\nData: ${path.join(dataDir(), 'ems.sqlite')}`,
+              detail: `An Entacrest Nexus product.\n\nData folder: ${dataDir()}`,
             }),
         },
         { type: 'separator' },
@@ -348,38 +628,27 @@ function buildMenu() {
 // ── Start ───────────────────────────────────────────────────────────────────
 
 if (!app.requestSingleInstanceLock()) {
-  // A second copy would fight over the port and the database.
+  // A second copy would fight over the ports and the databases.
   app.quit()
 } else {
-  app.on('second-instance', openBackOffice)
+  app.on('second-instance', () => void open('live', 'office'))
   app.setAppUserModelId('ng.entacrest.ems')
 
   void app.whenReady().then(async () => {
-    try {
-      const { createEmsServer } = require('./build/server.cjs')
-      ems = createEmsServer({ dataDir: dataDir(), onSms })
-    } catch (error) {
-      dialog.showErrorBox(
-        'EMS couldn’t start',
-        `EMS couldn’t open its data.\n\n${error?.stack ?? error}`,
-      )
-      app.exit(1)
-      return
-    }
-    // Test builds before this one ran a mock service worker at the same address.
+    config = readConfig()
+    // Earlier test builds ran a mock service worker at the live address.
     await session.defaultSession.clearStorageData({ storages: ['serviceworkers'] })
-    const port = await startWebServer()
-    origin = `http://127.0.0.1:${port}`
     buildMenu()
-    openBackOffice()
+    await open('live', 'office')
   })
 
-  app.on('window-all-closed', () => app.quit())
-  app.on('will-quit', () => {
-    try {
-      ems?.close()
-    } catch {
-      // Already closed.
-    }
+  app.on('window-all-closed', () => {
+    if (busy === 0) app.quit()
+  })
+  app.on('before-quit', (event) => {
+    if (quitting) return
+    event.preventDefault()
+    quitting = true
+    void Promise.all(Object.values(workspaces).map(stopWorkspace)).then(() => app.quit())
   })
 }

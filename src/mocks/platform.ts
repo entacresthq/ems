@@ -19,6 +19,11 @@ export interface Platform {
   sendSms(to: string, message: string): void
   /** Most operational branches the licence allows; null for no limit. */
   branchLimit(): number | null
+  /**
+   * Name of the session cookie. Cookies ignore the port, so two EMS servers on one
+   * computer (the desktop's live and demo workspaces) need different names.
+   */
+  sessionCookie: string
 }
 
 const demo: Platform = {
@@ -29,6 +34,7 @@ const demo: Platform = {
   otp: () => DEMO_OTP,
   sendSms: () => undefined,
   branchLimit: () => null,
+  sessionCookie: 'ems_refresh',
 }
 
 let current: Platform = demo

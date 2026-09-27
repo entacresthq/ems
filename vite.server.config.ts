@@ -2,21 +2,27 @@ import path from 'node:path'
 import { defineConfig } from 'vite'
 
 /**
- * Bundles the desktop server (src/server) into one CommonJS file that Electron's
- * main process loads: electron/build/server.cjs. Built with the "desktop" env.
+ * Bundles the EMS server (src/server) into build/server/:
+ *   main.cjs  runs the server (web deployments; the desktop app starts one per workspace)
+ *   ems.cjs   the server as a library, for the desktop app's connection tools
+ * Everything is bundled, so neither needs node_modules.
  */
 export default defineConfig({
   resolve: { alias: { '@': path.resolve(__dirname, 'src') } },
   publicDir: false,
   build: {
-    ssr: 'src/server/index.ts',
-    outDir: 'electron/build',
+    ssr: true,
+    outDir: 'build/server',
     emptyOutDir: true,
     target: 'node22',
     minify: false,
     sourcemap: true,
-    rollupOptions: { output: { format: 'cjs', entryFileNames: 'server.cjs' } },
+    rollupOptions: {
+      input: { main: 'src/server/main.ts', ems: 'src/server/index.ts' },
+      // pg looks for an optional native driver that EMS doesn't use.
+      external: ['pg-native'],
+      output: { format: 'cjs', entryFileNames: '[name].cjs', chunkFileNames: '[name]-[hash].cjs' },
+    },
   },
-  // Bundle every dependency: the packaged app ships without node_modules.
   ssr: { noExternal: true, target: 'node' },
 })

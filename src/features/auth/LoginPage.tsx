@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/Button'
 import { config } from '@/config'
 import { homePathFor, isFieldUser } from '@/lib/permissions'
 import { DEMO_LOGINS, DEMO_OTP, DEMO_PASSWORD } from '@/mocks/demoLogins'
+import { useIsDemo, useSystemStatus } from '@/features/setup/useSystemStatus'
 import { ROLE_LABELS, type LoginChallenge } from '@/types'
 import { AuthLayout, type AuthVariant } from './AuthLayout'
 import { useAuth } from './AuthProvider'
@@ -61,6 +62,7 @@ function CredentialsStep({
   onChallenge: (c: LoginChallenge) => void
 }) {
   const field = variant === 'field'
+  const isDemo = useIsDemo()
   const [formError, setFormError] = useState<string | null>(null)
   const {
     register,
@@ -89,7 +91,7 @@ function CredentialsStep({
       variant={variant}
       title={field ? 'Sign in to the field app' : 'Sign in'}
       description="Use your staff email and password. We'll text a code to your phone."
-      aside={config.useMocks ? <DemoAccounts onPick={fillDemo} field={field} /> : undefined}
+      aside={isDemo ? <DemoAccounts onPick={fillDemo} field={field} /> : undefined}
     >
       <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
         {notice && <Alert tone="warning">{notice}</Alert>}
@@ -121,8 +123,8 @@ function CredentialsStep({
         >
           Continue
         </Button>
-        {config.desktop ? (
-          // No reset emails from the desktop app: a manager issues a temporary password.
+        {config.emsServer ? (
+          // No reset emails from the EMS server yet: a manager issues a temporary password.
           <p className="text-ink-2 text-sm">
             Forgot your password? Ask your MD or general manager to reset it.
           </p>
@@ -151,6 +153,7 @@ function OtpStep({
   onBack: () => void
 }) {
   const field = variant === 'field'
+  const status = useSystemStatus()
   const { completeLogin } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
@@ -227,10 +230,12 @@ function OtpStep({
         <OtpInput
           label="Sign-in code"
           hint={
-            config.useMocks
+            config.useMocks || status?.mode === 'demo'
               ? `Demo code: ${DEMO_OTP}`
-              : config.desktop
-                ? 'Until an SMS provider is connected, the code appears in a notification and under File → SMS outbox.'
+              : status?.sms === 'outbox'
+                ? config.desktop
+                  ? 'Until an SMS provider is connected, the code appears in a notification and under File → SMS outbox.'
+                  : 'SMS isn’t connected yet. Ask your administrator for the code from the SMS outbox.'
                 : undefined
           }
           error={errors.code?.message}
@@ -280,9 +285,9 @@ function DemoAccounts({ onPick, field }: { onPick: (email: string) => void; fiel
         Demo accounts
       </h2>
       <p className="text-ink-2 mt-1 text-sm">
-        Mock data is on. Every account uses the password{' '}
-        <span className="text-ink font-mono">{DEMO_PASSWORD}</span> and the code{' '}
-        <span className="text-ink font-mono">{DEMO_OTP}</span>.
+        {config.useMocks ? 'Mock data is on.' : 'This is the demo workspace, with training data.'}{' '}
+        Every account uses the password <span className="text-ink font-mono">{DEMO_PASSWORD}</span>{' '}
+        and the code <span className="text-ink font-mono">{DEMO_OTP}</span>.
       </p>
       <ul className="divide-rule border-rule mt-3 divide-y border-y">
         {shown.map((l) => (

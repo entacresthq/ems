@@ -21,7 +21,6 @@ export function api(path: string): string {
 
 const ACCESS_TTL_S = 5 * 60
 export const REFRESH_TTL_S = 12 * 60 * 60
-export const REFRESH_COOKIE = 'ems_refresh'
 
 function encode(payload: object): string {
   return btoa(JSON.stringify(payload)).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_')
