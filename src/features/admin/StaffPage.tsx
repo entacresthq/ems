@@ -205,6 +205,15 @@ export function TemporaryPasswordDialog({
             {result.staff.firstName} signs in with {result.staff.email} and this password, then must
             choose their own. The sign-in code goes to {formatPhone(result.staff.phone)}.
           </p>
+          {result.staff.temporaryPasswordExpiresAt && (
+            <p className="text-ink-2 text-sm">
+              It works until{' '}
+              <strong className="text-ink">
+                {formatDateTime(result.staff.temporaryPasswordExpiresAt)}
+              </strong>
+              . After that, reset the password to issue a new one.
+            </p>
+          )}
         </div>
       )}
     </Dialog>

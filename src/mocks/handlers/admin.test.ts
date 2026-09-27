@@ -53,6 +53,21 @@ describe('administration', () => {
       password: temporaryPassword,
     })
     expect(challenge.challengeId).toBeTruthy()
+
+    // Two words and four digits, e.g. "Mango-River-4821", good for 72 hours.
+    expect(temporaryPassword).toMatch(/^[A-Z][a-z]+-[A-Z][a-z]+-\d{4}$/)
+    const hours = (Date.parse(staff.temporaryPasswordExpiresAt!) - Date.now()) / 3_600_000
+    expect(hours).toBeGreaterThan(71.9)
+    expect(hours).toBeLessThanOrEqual(72)
+
+    // Once it has run out, it no longer signs anyone in.
+    db().staff.find((s) => s.id === staff.id)!.temporaryPasswordExpiresAt = new Date(
+      Date.now() - 1000,
+    ).toISOString()
+    const expired = await apiError(
+      authApi.login({ email: 'aisha.bello@ems.ng', password: temporaryPassword }),
+    )
+    expect(expired.code).toBe('temporary_password_expired')
     // Every change is audited.
     expect(db().audit.some((a) => a.action === 'staff.create' && a.entityId === staff.id)).toBe(
       true,

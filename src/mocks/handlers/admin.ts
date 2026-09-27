@@ -17,6 +17,7 @@ import { normalisePhone } from '@/lib/phone'
 import { PERMISSION_LABELS, roleWithArticle } from '@/lib/permissionCatalogue'
 import { assignPermissions, grantablePermissions, ROLE_PERMISSIONS } from '@/lib/permissions'
 import { commit, db, updateStaff } from '../db'
+import { PASSWORD_WORDS } from '../passwordWords'
 import { platform } from '../platform'
 import { audit, lagosDay, newId, staffName } from '../domain'
 import type { StaffRecord } from '../seed/generate'
@@ -46,11 +47,20 @@ function publicStaff(record: StaffRecord) {
   return serialize({ ...rest, permissions: effectivePermissions(record) })
 }
 
-/** Readable temporary password, e.g. "Ikola-482913". Shown once to the admin. */
-function temporaryPassword(): string {
-  const words = ['Egbeda', 'Ikotun', 'Ipaja', 'Igando', 'Ikola', 'Shasha', 'Ayobo', 'Baruwa']
-  const [a = 0, b = 0] = crypto.getRandomValues(new Uint32Array(2))
-  return `${words[a % words.length]}-${100_000 + (b % 900_000)}`
+/** How long a temporary password works before a manager must issue another. */
+export const TEMPORARY_PASSWORD_HOURS = 72
+
+/**
+ * Readable temporary password, e.g. "Mango-River-4821": easy to read out over the
+ * phone, about 655 million possibilities. Shown once to the manager.
+ */
+function temporaryPassword(): { password: string; expiresAt: string } {
+  const [a = 0, b = 0, c = 0] = crypto.getRandomValues(new Uint32Array(3))
+  const word = (n: number) => PASSWORD_WORDS[n % PASSWORD_WORDS.length]
+  return {
+    password: `${word(a)}-${word(b)}-${String(c % 10_000).padStart(4, '0')}`,
+    expiresAt: new Date(Date.now() + TEMPORARY_PASSWORD_HOURS * 3_600_000).toISOString(),
+  }
 }
 
 function validateStaff(body: Record<string, unknown>, existing: StaffRecord | null) {
@@ -351,7 +361,7 @@ export const adminHandlers = [
     const permissions = resolveStaffPermissions(body, clean.role, null, staff, errors)
     if (Object.keys(errors).length) return validationError(errors)
     const serial = Math.max(0, ...db().staff.map((s) => Number(s.staffId.slice(4)))) + 1
-    const password = temporaryPassword()
+    const { password, expiresAt } = temporaryPassword()
     const record: StaffRecord = {
       id: newId(),
       staffId: `EMS/${String(serial).padStart(4, '0')}`,
@@ -363,6 +373,7 @@ export const adminHandlers = [
       createdAt: toLagosIso(),
       password: platform().hashPassword(password),
       mustChangePassword: true,
+      temporaryPasswordExpiresAt: expiresAt,
     }
     db().staff.push(record)
     const branch = db().branches.find((b) => b.id === record.branchId)
@@ -459,8 +470,12 @@ export const adminHandlers = [
       return badRequest('You can’t change your own access. Ask another administrator.')
 
     if (action === 'reset-password') {
-      const password = temporaryPassword()
-      updateStaff(target, { password: platform().hashPassword(password), mustChangePassword: true })
+      const { password, expiresAt } = temporaryPassword()
+      updateStaff(target, {
+        password: platform().hashPassword(password),
+        mustChangePassword: true,
+        temporaryPasswordExpiresAt: expiresAt,
+      })
       audit(
         staff,
         'staff.reset_password',

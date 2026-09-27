@@ -50,6 +50,8 @@ export { DEMO_OTP, DEMO_PASSWORD } from '../demoLogins'
 export interface StaffRecord extends Staff {
   password: string
   mustChangePassword: boolean
+  /** When a temporary password stops working; null once they choose their own. */
+  temporaryPasswordExpiresAt?: string | null
 }
 
 /** Stored remittance; expected figures are always recomputed from transactions. */

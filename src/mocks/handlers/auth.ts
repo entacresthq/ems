@@ -85,6 +85,17 @@ export const authHandlers = [
         nonFieldErrors: ['The email or password is incorrect. Check both and try again.'],
       })
     }
+    const expiry = staff.mustChangePassword ? staff.temporaryPasswordExpiresAt : null
+    if (expiry && Date.parse(expiry) < Date.now()) {
+      return HttpResponse.json(
+        {
+          detail:
+            'Your temporary password has expired. Ask your MD or general manager to reset it and give you a new one.',
+          code: 'temporary_password_expired',
+        },
+        { status: 403 },
+      )
+    }
     if (staff.status !== 'active') {
       return HttpResponse.json(
         {
@@ -207,7 +218,11 @@ export const authHandlers = [
         newPassword: ['Choose a password different from your current one.'],
       })
     }
-    updateStaff(staff, { password: platform().hashPassword(next), mustChangePassword: false })
+    updateStaff(staff, {
+      password: platform().hashPassword(next),
+      mustChangePassword: false,
+      temporaryPasswordExpiresAt: null,
+    })
     audit(staff, 'auth.password_change', 'staff', staff.id, 'Changed own password')
     return HttpResponse.json(serialize(toAuthUser(staff)))
   }),
@@ -238,7 +253,11 @@ export const authHandlers = [
     const next = str(body, 'new_password')
     const problems = passwordProblems(next)
     if (problems.length) return validationError({ newPassword: problems })
-    updateStaff(staff, { password: platform().hashPassword(next), mustChangePassword: false })
+    updateStaff(staff, {
+      password: platform().hashPassword(next),
+      mustChangePassword: false,
+      temporaryPasswordExpiresAt: null,
+    })
     return new HttpResponse(null, { status: 204 })
   }),
 ]

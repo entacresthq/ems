@@ -32,6 +32,8 @@ export interface Staff {
   branchId: Id | null
   branchName: string | null
   status: StaffStatus
+  /** Set while they still have a temporary password: when it stops working. */
+  temporaryPasswordExpiresAt?: string | null
   /** What this person may do: chosen from what their role allows when they are added. */
   permissions: Permission[]
   lastLoginAt: IsoDateTime | null

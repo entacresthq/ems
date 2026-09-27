@@ -216,7 +216,7 @@ export function explainConnectionError(error: NodeJS.ErrnoException, host: strin
     return 'The database password is wrong. Check the password in the connection string, or reset it in Supabase (Database → Settings).'
   // The direct address has only an IPv6 record, so on IPv4 networks it fails in several ways.
   if (
-    /^db..*.supabase.co$/.test(host) ||
+    /^db\.[a-z0-9]+\.supabase\.co$/.test(host) ||
     error.code === 'ENETUNREACH' ||
     error.code === 'EHOSTUNREACH'
   )

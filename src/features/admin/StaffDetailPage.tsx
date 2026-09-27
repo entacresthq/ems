@@ -94,11 +94,7 @@ function StaffView({ staff: s }: { staff: Staff & { mustChangePassword: boolean 
         )}
       </header>
 
-      {s.mustChangePassword && (
-        <Alert tone="info" className="mb-6">
-          {s.firstName} hasn’t chosen their own password yet.
-        </Alert>
-      )}
+      {s.mustChangePassword && <TemporaryPasswordNotice staff={s} />}
 
       <div className="grid gap-6 xl:grid-cols-[22rem_minmax(0,1fr)]">
         <div className="flex flex-col gap-6">
@@ -219,6 +215,26 @@ function StaffView({ staff: s }: { staff: Staff & { mustChangePassword: boolean 
         </p>
       </ConfirmDialog>
     </>
+  )
+}
+
+/** Whether a temporary password is still waiting to be used, or has run out. */
+function TemporaryPasswordNotice({ staff: s }: { staff: Staff }) {
+  const expires = s.temporaryPasswordExpiresAt
+  // Checked when the page loads; good enough for a status note.
+  const [now] = useState(() => Date.now())
+  if (expires && Date.parse(expires) < now)
+    return (
+      <Alert tone="warning" className="mb-6">
+        {s.firstName}’s temporary password expired on {formatDateTime(expires)} before they used it.
+        Reset the password to give them a new one.
+      </Alert>
+    )
+  return (
+    <Alert tone="info" className="mb-6">
+      {s.firstName} hasn’t chosen their own password yet.
+      {expires && <> Their temporary password works until {formatDateTime(expires)}.</>}
+    </Alert>
   )
 }
 
