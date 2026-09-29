@@ -1,0 +1,24 @@
+# Render Blueprint for the EMS web server (README → "Hosting on Render").
+# Render → New → Blueprint → pick this repository. It asks for DATABASE_URL.
+services:
+  - type: web
+    name: ems
+    runtime: docker
+    # "starter" stays on. "free" sleeps after 15 idle minutes and takes about a
+    # minute to wake, which is fine for trying it out.
+    plan: starter
+    # Nearest Render region to Nigeria and to Supabase's London/Frankfurt regions.
+    region: frankfurt
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      # Supabase → Connect → Session pooler. Entered in the Render dashboard, never committed.
+      - key: DATABASE_URL
+        sync: false
+      # Lets you read sign-in codes at https://<your-app>/__sms?key=<this value>
+      # until an SMS provider is connected. Render generates it; see Environment.
+      - key: EMS_OUTBOX_KEY
+        generateValue: true
+      # outbox (nothing sent), termii or africastalking; add their keys when you have them.
+      - key: EMS_SMS_PROVIDER
+        value: outbox

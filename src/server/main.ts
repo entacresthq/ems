@@ -1,11 +1,11 @@
 import { readFileSync, existsSync, mkdirSync } from 'node:fs'
-import { createServer } from 'node:http'
+import { createServer, type RequestListener } from 'node:http'
 import { join, resolve } from 'node:path'
 import { openEmsServer, type EmsServer, type ServerMode } from './index'
 import { createRequestListener } from './http'
 import { smsProvider, type SmsProvider } from './sms'
 import { SqliteBackend } from './storage/sqlite'
-import { postgresBackend } from './storage/postgres'
+import { DatabaseInUseError, postgresBackend } from './storage/postgres'
 import type { Backend } from './storage/types'
 
 /**
@@ -77,34 +77,23 @@ async function start() {
     fail((error as Error).message)
   }
 
-  let ems: EmsServer
-  const backend = storage()
-  try {
-    ems = await openEmsServer({
-      storage: backend,
-      mode,
-      licenceFile: env.EMS_LICENCE_FILE,
-      sms,
-      onSms: (message) => parent?.postMessage({ type: 'sms', sms: message }),
-      onFatal: () => setTimeout(() => process.exit(1), 100),
-    })
-  } catch (error) {
-    fail((error as Error).message)
-  }
-
   const outboxKey = env.EMS_OUTBOX_KEY
-  const listener = createRequestListener({
-    ems,
-    webRoot,
-    outbox:
-      env.EMS_OUTBOX === 'open'
-        ? { access: 'open' }
+  const outbox =
+    env.EMS_OUTBOX === 'open'
+      ? ({ access: 'open' } as const)
+      : env.EMS_OUTBOX === 'local'
+        ? ({ access: 'local' } as const)
         : outboxKey
-          ? { access: 'key', key: outboxKey }
-          : { access: 'off' },
-    trustProxy: env.EMS_TRUST_PROXY === 'true',
-  })
-  const server = createServer(listener)
+          ? ({ access: 'key', key: outboxKey } as const)
+          : ({ access: 'off' } as const)
+
+  // Until the data is loaded, only the health check answers.
+  let listener: RequestListener = (req, res) => {
+    if (req.url === '/healthz') return void res.writeHead(200).end('ok')
+    res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8', 'Retry-After': '5' })
+    res.end('EMS is starting. Try again in a moment.')
+  }
+  const server = createServer((req, res) => listener(req, res))
   const host = env.EMS_HOST ?? '0.0.0.0'
   const wanted = Number(env.PORT ?? env.EMS_PORT ?? 8080)
   let port: number
@@ -117,8 +106,37 @@ async function start() {
     else fail(`port ${wanted} is in use.`)
   }
 
+  // Hosts such as Render start the new version before stopping the old one, which
+  // still holds the database. With EMS_WAIT_FOR_LOCK the new one waits its turn.
+  const waitForLock = env.EMS_WAIT_FOR_LOCK === 'true'
+  let ems: EmsServer | undefined
+  while (!ems) {
+    try {
+      ems = await openEmsServer({
+        storage: storage(),
+        mode,
+        licenceFile: env.EMS_LICENCE_FILE,
+        sms,
+        onSms: (message) => parent?.postMessage({ type: 'sms', sms: message }),
+        onFatal: () => setTimeout(() => process.exit(1), 100),
+      })
+    } catch (error) {
+      if (waitForLock && error instanceof DatabaseInUseError) {
+        console.log('Waiting for the previous EMS server to release the database…')
+        await new Promise((r) => setTimeout(r, 5000))
+      } else fail((error as Error).message)
+    }
+  }
+  const running = ems
+  listener = createRequestListener({
+    ems: running,
+    webRoot,
+    outbox,
+    trustProxy: env.EMS_TRUST_PROXY === 'true',
+  })
+
   console.log(
-    `EMS ${mode} server on http://${host}:${port} · data: ${ems.database} · SMS: ${sms.name}`,
+    `EMS ${mode} server on http://${host}:${port} · data: ${running.database} · SMS: ${sms.name}`,
   )
   parent?.postMessage({ type: 'ready', port })
 
@@ -126,9 +144,9 @@ async function start() {
   parent?.on('message', ({ data }) => {
     const message = data as { id: number; type: string; file?: string }
     const reply = (body: object) => parent.postMessage({ id: message.id, ...body })
-    if (message.type === 'status') reply({ type: 'status', status: ems.status() })
+    if (message.type === 'status') reply({ type: 'status', status: running.status() })
     if (message.type === 'backup' && message.file)
-      ems.backup(message.file).then(
+      running.backup(message.file).then(
         () => reply({ type: 'done' }),
         (error: Error) => reply({ type: 'error', message: error.message }),
       )
@@ -140,7 +158,7 @@ async function start() {
     if (closing) return
     closing = true
     server.close()
-    await ems.close().catch(() => undefined)
+    await running.close().catch(() => undefined)
     process.exit(0)
   }
   process.on('SIGTERM', () => void shutdown())

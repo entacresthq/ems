@@ -19,7 +19,8 @@ ENV NODE_ENV=production \
     PORT=8080 \
     EMS_WEB_ROOT=/app/dist-web \
     EMS_DATA_DIR=/data \
-    EMS_TRUST_PROXY=true
+    EMS_TRUST_PROXY=true \
+    EMS_WAIT_FOR_LOCK=true
 # The server bundle carries its own dependencies.
 COPY --from=build /app/build/server ./build/server
 COPY --from=build /app/dist-web ./dist-web

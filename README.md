@@ -119,6 +119,20 @@ Put it behind HTTPS: Render, Railway and Fly provide HTTPS automatically, or use
 - EMS doesn't use Supabase Auth. Staff sign in through EMS, with its own passwords, SMS codes and permissions.
 - Backups: Supabase takes daily backups on paid plans, with point-in-time recovery as an add-on. The desktop app's **Back up live data…** also works with Supabase and writes a SQLite copy.
 
+### Hosting on Render
+
+`render.yaml` deploys the web server from this repository with Docker.
+
+1. Sign up at render.com with your GitHub account. Choose **New → Blueprint**, pick the EMS repository, and confirm.
+2. When it asks for `DATABASE_URL`, paste the Supabase **Session pooler** string. It is stored in Render, never in the repository.
+3. The first build takes a few minutes. You then get an address like `https://ems-xxxx.onrender.com`. A custom domain such as `ems.yourcompany.ng` can be added under **Settings → Custom Domains**; Render provides HTTPS for it.
+4. Open the address and enter the licence. If the database already holds a business (for example from a desktop that used Supabase), EMS goes straight to sign-in. Otherwise it walks you through set-up.
+5. Until an SMS provider is connected, read sign-in codes at `https://<address>/__sms?key=<EMS_OUTBOX_KEY>`. The key is under **Environment** in Render.
+
+- **Only one EMS server per database.** A desktop that uses the same Supabase database directly must be switched to **On my organisation's EMS server** (the Render address). Close EMS on that desktop before the first deploy; the web server waits until the database is free.
+- **Updates.** `EMS_WAIT_FOR_LOCK` lets Render start a new version while the old one still holds the database. The new version answers health checks, waits its turn, then takes over. Requests in those few seconds get "EMS is starting".
+- **Other hosts** (Railway, Fly.io, a VPS) work the same way with the `Dockerfile` and the variables above.
+
 ### Desktop app (Windows)
 
 - Built with `.env.desktop`.
@@ -137,6 +151,23 @@ Put it behind HTTPS: Render, Railway and Fly provide HTTPS automatically, or use
 - **Not live-ready yet:**
   - There are no password-reset emails; managers reset passwords from the staff page.
   - The installer isn't code-signed, so SmartScreen warns on first run (**More info → Run anyway**).
+
+#### Several computers in one office
+
+Every install starts as its own, separate EMS. To let other computers work on the same business, one computer serves the others:
+
+1. On the computer that holds the data, choose **File → Share on office network**. It shows the address to use, e.g. `http://192.168.1.23:47821`. When Windows asks, allow EMS on private networks.
+2. On each other computer:
+   - install EMS;
+   - on the licence screen, choose **Connect to your organisation** (or **File → Connection settings…**);
+   - choose **On my organisation's EMS server** and enter that address.
+
+   Staff computers need no licence. EMS restarts once, then staff sign in as themselves.
+
+- The sharing computer must be on with EMS open while others use it.
+- Its address can change when it reconnects to the network, so reserve it in the router.
+- Only that computer can open the SMS outbox, because it shows sign-in codes.
+- Office sharing works inside one network only. For other branches and officers' phones, host EMS online (see "Hosting on Render") and point every computer at that address instead.
 
 ### Licences
 

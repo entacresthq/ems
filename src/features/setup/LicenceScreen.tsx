@@ -87,6 +87,19 @@ export function LicenceScreen({ status }: { status: SystemStatus }) {
         </div>
       }
     >
+      {config.desktop && !current && (
+        <Alert tone="info" className="mb-5">
+          <strong className="font-semibold">Joining a business that already uses EMS?</strong> Staff
+          don’t need a licence. Connect this computer to your organisation’s EMS instead.{' '}
+          {/* The desktop app opens its connection settings for this address. */}
+          <a
+            href="/__desktop/connection-settings"
+            className="font-medium whitespace-nowrap underline underline-offset-2"
+          >
+            Connect to your organisation
+          </a>
+        </Alert>
+      )}
       {current?.status === 'expired' && (
         <Alert tone="warning" className="mb-4">
           Licence {current.id} for {current.licensee} ended on{' '}

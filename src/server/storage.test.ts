@@ -225,3 +225,34 @@ describe('database connection messages', () => {
     ).toMatch(/15 seconds/)
   })
 })
+
+describe('sharing on the office network', () => {
+  it('shows the SMS outbox (sign-in codes) only on the server computer itself', async () => {
+    const ems = await openEmsServer({
+      storage: new SqliteBackend(join(dir, 'share.sqlite')),
+      ...common,
+    })
+    const listener = createRequestListener({
+      ems,
+      webRoot: dir,
+      outbox: { access: 'local' },
+      trustProxy: false,
+    })
+    const ask = (remoteAddress: string) =>
+      new Promise<number>((done) => {
+        const req = { url: '/__sms.json', headers: {}, socket: { remoteAddress } }
+        const res = {
+          setHeader: () => undefined,
+          writeHead: (status: number) => {
+            done(status)
+            return res
+          },
+          end: () => undefined,
+        }
+        listener(req as never, res as never)
+      })
+    expect(await ask('192.168.1.20')).toBe(404)
+    expect(await ask('127.0.0.1')).toBe(200)
+    await ems.close()
+  })
+})

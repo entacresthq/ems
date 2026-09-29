@@ -36,19 +36,30 @@ const dataDir = () => path.join(app.getPath('userData'), 'data')
 const configFile = () => path.join(app.getPath('userData'), 'config.json')
 
 // ── Connection settings ─────────────────────────────────────────────────────
-// { live: { kind: 'sqlite' } | { kind: 'postgres', url, schema } | { kind: 'remote', url } }
+// {
+//   live: { kind: 'sqlite' } | { kind: 'postgres', url, schema } | { kind: 'remote', url },
+//   share: true when other computers on the office network may connect to this one
+// }
 // Database passwords are encrypted with Windows' data protection (safeStorage).
 
-function readConfig() {
+function readRawConfig() {
   try {
-    const raw = JSON.parse(fs.readFileSync(configFile(), 'utf8'))
-    const live = raw.live ?? { kind: 'sqlite' }
+    return JSON.parse(fs.readFileSync(configFile(), 'utf8'))
+  } catch {
+    return {}
+  }
+}
+
+function readConfig() {
+  const raw = readRawConfig()
+  const live = raw.live ?? { kind: 'sqlite' }
+  try {
     if (live.kind === 'postgres' && live.urlEncrypted)
       live.url = safeStorage.decryptString(Buffer.from(live.urlEncrypted, 'base64'))
-    return { live }
   } catch {
-    return { live: { kind: 'sqlite' } }
+    return { live: { kind: 'sqlite' }, share: false }
   }
+  return { live, share: Boolean(raw.share) }
 }
 
 function writeConfig(config) {
@@ -58,7 +69,31 @@ function writeConfig(config) {
     delete live.url
   }
   fs.mkdirSync(path.dirname(configFile()), { recursive: true })
-  fs.writeFileSync(configFile(), JSON.stringify({ live }, null, 2))
+  fs.writeFileSync(configFile(), JSON.stringify({ live, share: Boolean(config.share) }, null, 2))
+}
+
+// Connected to another computer over the office network (plain http): let EMS
+// treat it as secure, as it would an https site, so the field app's PIN works.
+{
+  const live = readRawConfig().live
+  if (live?.kind === 'remote' && String(live.url ?? '').startsWith('http://')) {
+    try {
+      app.commandLine.appendSwitch(
+        'unsafely-treat-insecure-origin-as-secure',
+        new URL(live.url).origin,
+      )
+    } catch {
+      // A bad address is reported when EMS tries to open it.
+    }
+  }
+}
+
+/** This computer's addresses on the office network. */
+function networkAddresses() {
+  return Object.values(require('node:os').networkInterfaces())
+    .flat()
+    .filter((a) => a && a.family === 'IPv4' && !a.internal)
+    .map((a) => a.address)
 }
 
 let config = null
@@ -87,13 +122,15 @@ function ensureStarted(ws) {
   delete env.ELECTRON_RUN_AS_NODE
   Object.assign(env, {
     EMS_MODE: ws.name,
-    EMS_HOST: '127.0.0.1',
+    // Shared: listen on the office network too. Otherwise this computer only.
+    EMS_HOST: ws.name === 'live' && config.share ? '0.0.0.0' : '127.0.0.1',
     EMS_PORT: String(ws.port),
     EMS_PORT_FALLBACK: 'true',
     EMS_WEB_ROOT: WEB_ROOT,
     EMS_DATA_DIR: dataDir(),
     EMS_LICENCE_FILE: path.join(dataDir(), 'licence.key'),
-    EMS_OUTBOX: 'open',
+    // The outbox shows sign-in codes: only this computer may read it.
+    EMS_OUTBOX: 'local',
   })
   delete env.DATABASE_URL
   if (ws.name === 'live' && config.live.kind === 'postgres') {
@@ -186,13 +223,31 @@ function notifySms(ws, sms) {
 
 // ── Windows ─────────────────────────────────────────────────────────────────
 
+/** Links the web app uses to ask for desktop features. */
+function desktopAction(url) {
+  try {
+    if (new URL(url).pathname === '/__desktop/connection-settings') {
+      openConnectionSettings()
+      return true
+    }
+  } catch {
+    // not a URL we handle
+  }
+  return false
+}
+
 function keepLinksInApp(win, origin) {
   win.webContents.setWindowOpenHandler(({ url }) => {
+    if (desktopAction(url)) return { action: 'deny' }
     if (url.startsWith(origin)) return { action: 'allow' }
     void shell.openExternal(url)
     return { action: 'deny' }
   })
   win.webContents.on('will-navigate', (event, url) => {
+    if (desktopAction(url)) {
+      event.preventDefault()
+      return
+    }
     if (!url.startsWith(origin)) {
       event.preventDefault()
       void shell.openExternal(url)
@@ -393,8 +448,18 @@ async function switchConnection(next, { copy }) {
         })
       }
     }
-    config = { live: next }
+    // A computer that connects to another one doesn't share anything itself.
+    config = { live: next, share: next.kind === 'remote' ? false : config.share }
     writeConfig(config)
+    buildMenu()
+    if (next.kind === 'remote' && next.url.startsWith('http://')) {
+      // An office-network address needs a restart to be treated as secure (see top).
+      // Registered now, so EMS comes back however it closes (e.g. the settings
+      // window closing leaves no windows open).
+      app.relaunch()
+      setTimeout(() => app.exit(0), 1200)
+      return { ok: true }
+    }
     await open('live', 'office')
     return { ok: true }
   } catch (error) {
@@ -415,6 +480,46 @@ ipcMain.handle('connection:get', () => {
 })
 ipcMain.handle('connection:test', (_event, next) => testConnection(next))
 ipcMain.handle('connection:save', (_event, next, options) => saveConnection(next, options ?? {}))
+
+// ── Office network ─────────────────────────────────────────────────────────
+
+function setSharing(on) {
+  return whileBusy(async () => {
+    config = { ...config, share: on }
+    writeConfig(config)
+    const live = workspaces.live
+    closeWindows(live)
+    await stopWorkspace(live)
+    buildMenu()
+    await open('live', 'office')
+    if (on) await showNetworkAddress()
+  })
+}
+
+async function showNetworkAddress() {
+  const origin = await ensureStarted(workspaces.live).catch(() => null)
+  const port = origin ? new URL(origin).port : workspaces.live.port
+  const addresses = networkAddresses().map((ip) => `http://${ip}:${port}`)
+  await dialog.showMessageBox({
+    type: 'info',
+    title: 'Share on office network',
+    message: addresses.length
+      ? 'Other computers on this network can now use this EMS.'
+      : 'This computer isn’t connected to a network.',
+    detail: [
+      ...(addresses.length
+        ? [
+            'On each other computer: install EMS, open File → Connection settings…, choose “On my organisation’s EMS server” and enter:',
+            '',
+            ...addresses,
+            '',
+            'If Windows asks whether to allow EMS on the network, choose Allow (private networks).',
+          ]
+        : []),
+      'This computer must be switched on with EMS open while others use it. Its address can change when it reconnects: ask whoever manages the router to reserve it.',
+    ].join('\n'),
+  })
+}
 
 // ── Menu actions ────────────────────────────────────────────────────────────
 
@@ -585,6 +690,18 @@ function buildMenu() {
         { label: 'Back up live data…', click: () => void backUp() },
         { label: 'Open data folder', click: () => void shell.openPath(dataDir()) },
         { label: 'Connection settings…', click: openConnectionSettings },
+        {
+          label: 'Share on office network',
+          type: 'checkbox',
+          checked: Boolean(config.share),
+          enabled: config.live.kind !== 'remote',
+          click: (item) => void setSharing(item.checked),
+        },
+        {
+          label: 'Office network address…',
+          enabled: Boolean(config.share) && config.live.kind !== 'remote',
+          click: () => void showNetworkAddress(),
+        },
         { type: 'separator' },
         { role: 'quit', label: 'Exit' },
       ],

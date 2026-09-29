@@ -65,7 +65,10 @@ export class PostgresBackend implements Backend {
       'SELECT pg_try_advisory_lock(hashtext($1)) AS ok',
       [`ems:${this.schema}`],
     )
-    if (!lock.rows[0]?.ok) throw new DatabaseInUseError(this.label)
+    if (!lock.rows[0]?.ok) {
+      await this.close()
+      throw new DatabaseInUseError(this.label)
+    }
 
     const ddl = [
       `CREATE SCHEMA IF NOT EXISTS "${this.schema}"`,

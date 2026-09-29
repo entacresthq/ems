@@ -15,11 +15,12 @@ export interface HttpOptions {
   /** The built web app (index.html and assets/). */
   webRoot: string
   /**
-   * Who may open the SMS outbox at /__sms: anyone who can reach the server (the
-   * desktop app, which listens on this computer only), holders of a key (web,
-   * /__sms?key=…), or nobody.
+   * Who may open the SMS outbox at /__sms: anyone who can reach the server, only
+   * this computer (the desktop app, even when shared on the office network, since
+   * the outbox shows sign-in codes), holders of a key (web, /__sms?key=…), or nobody.
    */
-  outbox: { access: 'open' } | { access: 'key'; key: string } | { access: 'off' }
+  outbox:
+    { access: 'open' } | { access: 'local' } | { access: 'key'; key: string } | { access: 'off' }
   /** Behind a proxy that terminates HTTPS (Render, Fly, nginx): trust X-Forwarded-Proto. */
   trustProxy: boolean
 }
@@ -49,6 +50,9 @@ const SECURITY_HEADERS = {
 }
 
 class TooLarge extends Error {}
+
+const isLoopback = (address: string | undefined) =>
+  address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1'
 
 async function readBody(req: IncomingMessage): Promise<Buffer | undefined> {
   const chunks: Buffer[] = []
@@ -136,16 +140,17 @@ export function createRequestListener(options: HttpOptions) {
     }
   }
 
-  function outboxAllowed(url: URL) {
+  function outboxAllowed(url: URL, req: IncomingMessage) {
     const rule = options.outbox
     return (
       rule.access === 'open' ||
+      (rule.access === 'local' && isLoopback(req.socket.remoteAddress)) ||
       (rule.access === 'key' && sameKey(url.searchParams.get('key'), rule.key))
     )
   }
 
-  async function serveOutbox(url: URL, res: ServerResponse) {
-    if (!outboxAllowed(url)) {
+  async function serveOutbox(url: URL, req: IncomingMessage, res: ServerResponse) {
+    if (!outboxAllowed(url, req)) {
       send(res, 404, { 'Content-Type': 'text/plain; charset=utf-8' }, 'Not found')
       return
     }
@@ -196,7 +201,7 @@ export function createRequestListener(options: HttpOptions) {
     if (isHttps(req)) res.setHeader('Strict-Transport-Security', 'max-age=31536000')
     if (url.pathname.startsWith('/api/')) return void serveApi(req, res)
     if (url.pathname === '/__sms' || url.pathname === '/__sms.json')
-      return void serveOutbox(url, res).catch((error) => {
+      return void serveOutbox(url, req, res).catch((error) => {
         console.error(error)
         send(res, 500, {})
       })
