@@ -3,14 +3,16 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { accountKeys, accountsApi } from '@/api/accounts'
 import { isApiError } from '@/api/client'
-import { Select } from '@/components/form/inputs'
+import { Checkbox, Select, TextInput } from '@/components/form/inputs'
+import { MoneyInput } from '@/components/form/MoneyInput'
 import { Alert } from '@/components/ui/Alert'
 import { Button } from '@/components/ui/Button'
 import { Dialog } from '@/components/ui/Dialog'
 import { SegmentedControl } from '@/components/ui/Tabs'
 import { useToast } from '@/components/ui/Toast'
 import { useThriftPlans } from '@/features/shared/lookups'
-import { formatNaira } from '@/lib/money'
+import { formatNaira, type Kobo } from '@/lib/money'
+import { todayIso } from '@/lib/dates'
 import type { Customer } from '@/types'
 
 export function OpenAccountDialog({
@@ -22,9 +24,13 @@ export function OpenAccountDialog({
   onClose: () => void
   customer: Customer
 }) {
-  const [type, setType] = useState<'savings' | 'thrift'>('thrift')
+  const [type, setType] = useState<'savings' | 'target' | 'thrift'>('thrift')
   const [planId, setPlanId] = useState('')
-  const [errors, setErrors] = useState<{ form?: string; plan?: string }>({})
+  const [goalName, setGoalName] = useState('')
+  const [targetAmount, setTargetAmount] = useState<Kobo | null>(null)
+  const [targetDate, setTargetDate] = useState('')
+  const [lock, setLock] = useState(true)
+  const [errors, setErrors] = useState<Record<string, string | undefined>>({})
   const [busy, setBusy] = useState(false)
   const plans = useThriftPlans('active')
   const queryClient = useQueryClient()
@@ -37,6 +43,17 @@ export function OpenAccountDialog({
       setErrors({ plan: 'Choose the thrift plan the customer is joining.' })
       return
     }
+    if (type === 'target') {
+      const next: Record<string, string> = {}
+      if (goalName.trim().length < 3) next.goalName = 'Say what the customer is saving for.'
+      if (!targetAmount) next.targetAmount = 'Enter the amount the customer wants to save.'
+      if (!targetDate) next.targetDate = 'Choose the date the customer wants to reach the goal.'
+      else if (targetDate <= todayIso()) next.targetDate = 'The target date must be in the future.'
+      if (Object.keys(next).length) {
+        setErrors(next)
+        return
+      }
+    }
     setBusy(true)
     setErrors({})
     try {
@@ -44,6 +61,16 @@ export function OpenAccountDialog({
         customerId: customer.id,
         type,
         thriftPlanId: type === 'thrift' ? planId : null,
+        ...(type === 'target'
+          ? {
+              target: {
+                goalName: goalName.trim(),
+                targetAmount: targetAmount!,
+                targetDate,
+                lockUntilReached: lock,
+              },
+            }
+          : {}),
       })
       await queryClient.invalidateQueries({ queryKey: accountKeys.all })
       toast({
@@ -56,6 +83,9 @@ export function OpenAccountDialog({
       if (isApiError(e)) {
         setErrors({
           plan: e.fieldErrors.thriftPlanId?.join(' '),
+          goalName: e.fieldErrors['target.goalName']?.join(' '),
+          targetAmount: e.fieldErrors['target.targetAmount']?.join(' '),
+          targetDate: e.fieldErrors['target.targetDate']?.join(' '),
           form: [...e.formErrors, ...(e.fieldErrors.type ?? [])].join(' ') || undefined,
         })
       } else setErrors({ form: 'The account could not be opened. Try again.' })
@@ -78,7 +108,7 @@ export function OpenAccountDialog({
             Cancel
           </Button>
           <Button variant="primary" onClick={submit} loading={busy}>
-            Open {type} account
+            Open {type === 'target' ? 'target savings' : type} account
           </Button>
         </>
       }
@@ -92,6 +122,7 @@ export function OpenAccountDialog({
           options={[
             { value: 'thrift', label: 'Thrift' },
             { value: 'savings', label: 'Savings' },
+            { value: 'target', label: 'Target savings' },
           ]}
         />
         {type === 'thrift' ? (
@@ -120,6 +151,40 @@ export function OpenAccountDialog({
                     : `A flat fee of ${formatNaira(plan.commission.amount)} applies per cycle.`}
               </p>
             )}
+          </>
+        ) : type === 'target' ? (
+          <>
+            <p className="text-ink-2 text-sm">
+              For a customer saving towards something, like school fees or a new freezer. A customer
+              can have several goals, each with its own account.
+            </p>
+            <TextInput
+              label="What is the customer saving for?"
+              value={goalName}
+              onChange={(e) => setGoalName(e.target.value)}
+              error={errors.goalName}
+              placeholder="e.g. School fees"
+              maxLength={60}
+            />
+            <MoneyInput
+              label="Target amount"
+              value={targetAmount}
+              onChange={setTargetAmount}
+              error={errors.targetAmount}
+            />
+            <TextInput
+              label="Reach the goal by"
+              type="date"
+              min={todayIso()}
+              value={targetDate}
+              onChange={(e) => setTargetDate(e.target.value)}
+              error={errors.targetDate}
+            />
+            <Checkbox
+              label="Lock until the goal is reached or the date has passed"
+              checked={lock}
+              onChange={(e) => setLock(e.target.checked)}
+            />
           </>
         ) : (
           <p className="text-ink-2 text-sm">

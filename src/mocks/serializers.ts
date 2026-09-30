@@ -39,7 +39,14 @@ const moneyOrNull = (v: Kobo | null) => (v === null ? null : toDecimal(v))
 
 export const out = {
   customer: (c: Customer) => serialize(c),
-  account: (a: Account) => serialize(a, ['balance']),
+  account: (a: Account) =>
+    serialize(
+      {
+        ...a,
+        target: a.target ? { ...a.target, targetAmount: toDecimal(a.target.targetAmount) } : null,
+      },
+      ['balance'],
+    ),
   transaction: (t: Transaction) => serialize(t, ['amount', 'balanceAfter']),
   loan: (l: Loan) => {
     const { schedule: _schedule, ...rest } = l as LoanRecord
@@ -58,7 +65,21 @@ export const out = {
     ...(out.loan(l) as Record<string, unknown>),
     schedule: schedule.map((r) => serialize(r, ['principal', 'interest', 'amount', 'paid'])),
   }),
-  loanProduct: (p: LoanProduct) => serialize(p, ['minAmount', 'maxAmount']),
+  loanProduct: (p: LoanProduct) =>
+    serialize(
+      {
+        ...p,
+        processingFee:
+          p.processingFee.type === 'flat'
+            ? { type: 'flat', amount: toDecimal(p.processingFee.amount) }
+            : p.processingFee,
+        penalty:
+          p.penalty.type === 'flat'
+            ? { ...p.penalty, amountPerDay: toDecimal(p.penalty.amountPerDay) }
+            : p.penalty,
+      },
+      ['minAmount', 'maxAmount'],
+    ),
   settings: (s: BusinessSettings) => serialize(s, ['largeWithdrawalThreshold']),
   thriftPlan: (p: ThriftPlan) =>
     serialize(

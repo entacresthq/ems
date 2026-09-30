@@ -1,5 +1,10 @@
 import { todayIso, toIsoDate, toLagosIso } from '@/lib/dates'
-import { buildSchedule, isOpen, processingFee, respread, weekday, type Calendar } from '@/lib/loans'
+import {
+  DEFAULT_ACCOUNT_NUMBER_FORMAT,
+  formatAccountNumber,
+  nextSerial,
+} from '@/lib/accountNumber'
+import { buildSchedule, isOpen, respread, weekday, type Calendar } from '@/lib/loans'
 import { formatNaira, kobo, ZERO, type Kobo } from '@/lib/money'
 import type {
   Account,
@@ -10,12 +15,14 @@ import type {
   LoanProduct,
   PaymentMethod,
   Remittance,
+  SavingsTarget,
   SmsTemplateKey,
   TodayItem,
   Transaction,
   TransactionChannel,
   TransactionType,
 } from '@/types'
+import { approvesOwnRequests, ROLE_LABELS } from '@/types'
 import { commit, db } from './db'
 import { platform } from './platform'
 import { calendarOf, refreshLoan, type LoanRecord } from './loanState'
@@ -116,7 +123,11 @@ type ApprovalFields = Pick<Approval, 'type' | 'subject' | 'branchId' | 'reason'>
     payload?: ApprovalRecord['payload']
   }
 
-/** Create a pending request for a second person to decide. */
+/**
+ * Create a request for a second person to decide. When the requester is the MD or
+ * a general manager it is approved and carried out on the spot, and the record
+ * says so. If it can't be carried out, nothing is created and a DomainError is thrown.
+ */
 export function requestApproval(requester: StaffRecord, fields: ApprovalFields): ApprovalRecord {
   const approval: ApprovalRecord = {
     id: newId(),
@@ -136,6 +147,23 @@ export function requestApproval(requester: StaffRecord, fields: ApprovalFields):
     decisionNote: '',
     payload: {},
     ...fields,
+  }
+  if (approvesOwnRequests(requester)) {
+    // Carry it out first: if it can't be done there is nothing to record.
+    executeApproval(approval, requester)
+    approval.status = 'approved'
+    approval.decidedByName = staffName(requester)
+    approval.decidedAt = approval.requestedAt
+    approval.decisionNote = `Approved automatically. Raised by the ${ROLE_LABELS[requester.role].toLowerCase()}.`
+    db().approvals.unshift(approval)
+    audit(
+      requester,
+      `approval.auto.${approval.type}`,
+      'approval',
+      approval.id,
+      `Approved automatically: ${approval.subject}`,
+    )
+    return approval
   }
   db().approvals.unshift(approval)
   audit(requester, `approval.request.${approval.type}`, 'approval', approval.id, approval.subject)
@@ -279,15 +307,30 @@ export function reverse(original: Transaction, approver: StaffRecord, reason: st
 
 // ── Accounts ──────────────────────────────────────────────────────────────
 
+/** Numbers follow the format the business chose in Settings. Existing accounts keep theirs. */
 function nextAccountNumber(branchCode: string, productCode: string) {
-  const serial = Math.max(0, ...db().accounts.map((a) => Number(a.accountNumber.slice(4)))) + 1
-  return `${branchCode}${productCode}${String(serial).padStart(6, '0')}`
+  const format = db().settings.accountNumberFormat ?? DEFAULT_ACCOUNT_NUMBER_FORMAT
+  const year = Number(todayIso().slice(0, 4))
+  const build = (serial: number) =>
+    formatAccountNumber(format, { branchCode, productCode, year, serial })
+  try {
+    return build(
+      nextSerial(
+        format,
+        db().accounts.map((a) => a.accountNumber),
+        build,
+      ),
+    )
+  } catch (e) {
+    throw new DomainError(e instanceof Error ? e.message : 'No account number is free.')
+  }
 }
 
 export function openAccount(
   customerId: string,
-  type: 'savings' | 'thrift',
+  type: 'savings' | 'target' | 'thrift',
   thriftPlanId: string | null,
+  target: SavingsTarget | null = null,
 ): Account {
   const data = db()
   const customer = data.customers.find((c) => c.id === customerId)
@@ -297,19 +340,24 @@ export function openAccount(
   if (type === 'thrift' && !plan) throw new DomainError('Choose a thrift plan.', 'thriftPlanId')
   const account: Account = {
     id: newId(),
-    accountNumber: nextAccountNumber(branch.code, type === 'savings' ? '10' : plan!.code),
+    accountNumber: nextAccountNumber(
+      branch.code,
+      type === 'savings' ? '10' : type === 'target' ? '11' : plan!.code,
+    ),
     type,
     customerId,
     customerName: `${customer.firstName} ${customer.lastName}`,
     branchId: customer.branchId,
     officerId: customer.officerId,
     productId: plan?.id ?? null,
-    productName: plan?.name ?? null,
+    // A target account is named after the goal, so it reads well in lists.
+    productName: type === 'target' ? (target?.goalName ?? null) : (plan?.name ?? null),
     status: 'active',
     balance: ZERO,
     openedAt: toLagosIso(),
     closedAt: null,
     lastTransactionAt: null,
+    target: type === 'target' ? target : null,
   }
   data.accounts.push(account)
   commit()
@@ -319,7 +367,9 @@ export function openAccount(
 /**
  * Pay out an approved loan: open the loan account, fix the schedule from
  * today, post the disbursement and processing fee, and settle the old loan
- * first if this is a top-up. Returns the cash the customer receives.
+ * first if this is a top-up. Returns the cash the customer receives, or, for a
+ * buy now pay later purchase, the amount paid to the supplier (the customer
+ * gets the item, not cash, and pays the processing fee at handover).
  */
 export function disburseLoan(loan: LoanRecord, cashier: StaffRecord, method: PaymentMethod): Kobo {
   const data = db()
@@ -334,8 +384,10 @@ export function disburseLoan(loan: LoanRecord, cashier: StaffRecord, method: Pay
 
   const old = loan.topUpOfId ? data.loans.find((l) => l.id === loan.topUpOfId) : undefined
   const settle = old ? current(old).outstanding : ZERO
-  const fee = processingFee(loan.principal, product.processingFeePercent)
-  const payout = kobo(loan.principal - fee - settle)
+  const bnpl = loan.kind === 'bnpl'
+  // The fee was fixed when the application was made.
+  const fee = loan.processingFee
+  const payout = bnpl ? loan.principal : kobo(loan.principal - fee - settle)
   if (payout <= 0) {
     throw new DomainError(
       `The old loan balance (${formatNaira(settle)}) and fee take up the whole amount. Increase the top-up amount.`,
@@ -346,7 +398,8 @@ export function disburseLoan(loan: LoanRecord, cashier: StaffRecord, method: Pay
   const quote = buildSchedule(
     {
       principal: loan.principal,
-      monthlyRatePercent: loan.monthlyRatePercent,
+      ratePercent: loan.ratePercent,
+      interestBasis: loan.interestBasis,
       interestMethod: loan.interestMethod,
       frequency: loan.frequency,
       installmentCount: loan.installmentCount,
@@ -369,6 +422,7 @@ export function disburseLoan(loan: LoanRecord, cashier: StaffRecord, method: Pay
     openedAt: toLagosIso(),
     closedAt: null,
     lastTransactionAt: null,
+    target: null,
   }
   data.accounts.push(account)
   Object.assign(loan, {
@@ -380,7 +434,6 @@ export function disburseLoan(loan: LoanRecord, cashier: StaffRecord, method: Pay
     totalRepayable: quote.totalRepayable,
     installmentAmount: quote.installment,
     maturityDate: quote.maturityDate,
-    processingFee: fee,
     status: 'active',
     disbursedAt: toLagosIso(),
     disbursedByName: staffName(cashier),
@@ -409,18 +462,24 @@ export function disburseLoan(loan: LoanRecord, cashier: StaffRecord, method: Pay
     channel: 'counter',
     postedBy: cashier,
     paymentMethod: method,
-    narration: `Paid out ${formatNaira(payout)}${settle > 0 ? ` after settling ${old?.loanNumber}` : ''}`,
+    narration: bnpl
+      ? `Paid ${loan.supplierName} ${formatNaira(payout)} for ${loan.itemDescription}`
+      : `Paid out ${formatNaira(payout)}${settle > 0 ? ` after settling ${old?.loanNumber}` : ''}`,
   })
-  post({
-    account,
-    type: 'processing_fee',
-    direction: 'debit',
-    amount: fee,
-    channel: 'system',
-    postedBy: cashier,
-    paymentMethod: null,
-    narration: 'Deducted from the amount paid out',
-  })
+  if (fee > 0) {
+    post({
+      account,
+      type: 'processing_fee',
+      direction: 'debit',
+      amount: fee,
+      channel: bnpl ? 'counter' : 'system',
+      postedBy: cashier,
+      paymentMethod: bnpl ? method : null,
+      narration: bnpl
+        ? 'Collected from the customer at purchase'
+        : 'Deducted from the amount paid out',
+    })
+  }
   current(loan)
   account.balance = loan.outstanding
   commit()

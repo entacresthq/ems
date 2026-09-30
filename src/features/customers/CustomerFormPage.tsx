@@ -69,6 +69,12 @@ function CustomerForm({ customer }: { customer: Customer | null }) {
   const queryClient = useQueryClient()
   const [photo, setPhoto] = useState<Blob | null>(null)
   const [signature, setSignature] = useState<Blob | null>(null)
+  // Guarantor images, keyed by the form row so they stay with the right person if a row is removed.
+  const [guarantorImages, setGuarantorImages] = useState<
+    Record<string, { photo?: Blob | null; signature?: Blob | null }>
+  >({})
+  const setGuarantorImage = (rowKey: string, kind: 'photo' | 'signature', blob: Blob | null) =>
+    setGuarantorImages((all) => ({ ...all, [rowKey]: { ...all[rowKey], [kind]: blob } }))
   const [formError, setFormError] = useState<string | null>(null)
 
   const {
@@ -86,7 +92,7 @@ function CustomerForm({ customer }: { customer: Customer | null }) {
       officerId: '',
     }),
   })
-  const guarantors = useFieldArray({ control, name: 'guarantors' })
+  const guarantors = useFieldArray({ control, name: 'guarantors', keyName: 'rowKey' })
   const branchId = watch('branchId')
   const officers = useOfficers(branchId || null, Boolean(branchId))
   const areas = scope.branches.find((b) => b.id === branchId)?.areas ?? []
@@ -112,6 +118,21 @@ function CustomerForm({ customer }: { customer: Customer | null }) {
         await customersApi
           .uploadSignature(saved.id, signature)
           .catch(() => failed.push('signature'))
+      // The saved guarantors come back in the order they were sent.
+      for (const [i, row] of guarantors.fields.entries()) {
+        const images = guarantorImages[row.rowKey]
+        const savedGuarantor = saved.guarantors[i]
+        if (!images || !savedGuarantor) continue
+        const who = values.guarantors[i]?.fullName || `guarantor ${i + 1}`
+        if (images.photo)
+          await customersApi
+            .uploadGuarantorPhoto(saved.id, savedGuarantor.id, images.photo)
+            .catch(() => failed.push(`photo of ${who}`))
+        if (images.signature)
+          await customersApi
+            .uploadGuarantorSignature(saved.id, savedGuarantor.id, images.signature)
+            .catch(() => failed.push(`signature of ${who}`))
+      }
       return { saved, failed }
     },
   })
@@ -128,7 +149,7 @@ function CustomerForm({ customer }: { customer: Customer | null }) {
           ? `Saved, but the ${failed.join(' and ')} did not upload. Open the customer and try again.`
           : editing
             ? undefined
-            : `Customer number ${saved.customerNumber}. Open a savings or thrift account next.`,
+            : `Customer number ${saved.customerNumber}. Open a savings, target savings or thrift account next.`,
       })
       navigate(`/customers/${saved.id}`)
     } catch (error) {
@@ -369,7 +390,7 @@ function CustomerForm({ customer }: { customer: Customer | null }) {
             )}
             {guarantors.fields.map((field, i) => (
               <fieldset
-                key={field.id}
+                key={field.rowKey}
                 className="border-rule bg-surface grid gap-4 rounded border p-4 sm:grid-cols-2"
               >
                 <legend className="px-1 text-sm font-semibold">Guarantor {i + 1}</legend>
@@ -410,7 +431,21 @@ function CustomerForm({ customer }: { customer: Customer | null }) {
                   error={err(`guarantors.${i}.bvn`)}
                   {...register(`guarantors.${i}.bvn`)}
                 />
-                <div className="flex items-end justify-end">
+                <ImageUpload
+                  label="Guarantor photo"
+                  hint="Face clearly visible."
+                  value={guarantorImages[field.rowKey]?.photo ?? null}
+                  onChange={(b) => setGuarantorImage(field.rowKey, 'photo', b)}
+                  currentUrl={customer?.guarantors.find((g) => g.id === field.id)?.photoUrl}
+                />
+                <ImageUpload
+                  label="Guarantor signature or thumbprint"
+                  shape="wide"
+                  value={guarantorImages[field.rowKey]?.signature ?? null}
+                  onChange={(b) => setGuarantorImage(field.rowKey, 'signature', b)}
+                  currentUrl={customer?.guarantors.find((g) => g.id === field.id)?.signatureUrl}
+                />
+                <div className="flex items-end justify-end sm:col-span-2">
                   <Button
                     size="sm"
                     variant="ghost"
@@ -462,7 +497,13 @@ function CustomerForm({ customer }: { customer: Customer | null }) {
             variant="primary"
             loading={isSubmitting}
             loadingLabel="Saving…"
-            disabled={editing && !isDirty && !photo && !signature}
+            disabled={
+              editing &&
+              !isDirty &&
+              !photo &&
+              !signature &&
+              !Object.values(guarantorImages).some((i) => i.photo || i.signature)
+            }
           >
             {editing ? 'Save changes' : 'Add customer'}
           </Button>

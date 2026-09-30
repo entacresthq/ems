@@ -162,15 +162,41 @@ function CustomerProfile({ customer: c }: { customer: Customer }) {
               <p className="text-ink-2 text-sm">None recorded.</p>
             ) : (
               <ul className="divide-rule flex flex-col divide-y">
-                {c.guarantors.map((g, i) => (
-                  <li key={i} className="py-2 text-sm first:pt-0 last:pb-0">
-                    <p className="font-medium">{g.fullName}</p>
-                    <p className="text-ink-2">
-                      {formatPhone(g.phone)}
-                      {g.relationship && ` · ${g.relationship}`}
-                      {g.occupation && ` · ${g.occupation}`}
-                    </p>
-                    <p className="text-ink-2">{g.address}</p>
+                {c.guarantors.map((g) => (
+                  <li key={g.id} className="flex gap-3 py-3 text-sm first:pt-0 last:pb-0">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium">{g.fullName}</p>
+                      <p className="text-ink-2">
+                        {formatPhone(g.phone)}
+                        {g.relationship && ` · ${g.relationship}`}
+                        {g.occupation && ` · ${g.occupation}`}
+                      </p>
+                      <p className="text-ink-2">{g.address}</p>
+                    </div>
+                    <div className="flex shrink-0 gap-2">
+                      {g.photoUrl ? (
+                        <img
+                          src={g.photoUrl}
+                          alt={`Photo of guarantor ${g.fullName}`}
+                          className="border-rule h-20 w-16 rounded border object-cover"
+                        />
+                      ) : (
+                        <span className="text-ink-2 border-rule flex h-20 w-16 items-center justify-center rounded border border-dashed p-1 text-center text-xs">
+                          No photo
+                        </span>
+                      )}
+                      {g.signatureUrl ? (
+                        <img
+                          src={g.signatureUrl}
+                          alt={`Signature of guarantor ${g.fullName}`}
+                          className="border-rule h-20 w-32 rounded border bg-white object-contain"
+                        />
+                      ) : (
+                        <span className="text-ink-2 border-rule flex h-20 w-32 items-center justify-center rounded border border-dashed p-1 text-center text-xs">
+                          No signature
+                        </span>
+                      )}
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -275,7 +301,7 @@ function CustomerAccounts({ customer }: { customer: Customer }) {
             title: 'No accounts yet',
             description:
               customer.status === 'active'
-                ? 'Use “Open account” to start a savings or thrift account.'
+                ? 'Use “Open account” to start a savings, target savings or thrift account.'
                 : 'Accounts can be opened once the customer is approved.',
           }}
         />

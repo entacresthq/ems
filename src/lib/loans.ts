@@ -1,9 +1,16 @@
 import { kobo, type Kobo } from './money'
-import type { InterestMethod, PenaltyRule, RepaymentFrequency } from '@/types'
+import type {
+  FeeRule,
+  InterestBasis,
+  InterestMethod,
+  PenaltyRule,
+  RepaymentFrequency,
+} from '@/types'
 
 /**
  * Loan arithmetic shared by the app (quotes, previews) and the mock server.
- * All amounts are integer kobo. Rates are monthly percentages as strings ("4.00").
+ * All amounts are integer kobo. Rates are percentages as strings ("4.00"), read
+ * either per month or as one overall rate for the whole loan (see InterestBasis).
  *
  * Interest periods: a month is 26 working days, or 52/12 weeks.
  */
@@ -103,7 +110,9 @@ export interface ScheduleRow {
 
 export interface LoanTerms {
   principal: Kobo
-  monthlyRatePercent: string
+  ratePercent: string
+  /** Defaults to monthly. Overall is always charged flat. */
+  interestBasis?: InterestBasis
   interestMethod: InterestMethod
   frequency: RepaymentFrequency
   installmentCount: number
@@ -118,8 +127,8 @@ export interface Quote {
   maturityDate: string
 }
 
-function periodRate(terms: Pick<LoanTerms, 'monthlyRatePercent' | 'frequency'>): number {
-  return Number(terms.monthlyRatePercent) / 100 / PERIODS_PER_MONTH[terms.frequency]
+function periodRate(terms: Pick<LoanTerms, 'ratePercent' | 'frequency'>): number {
+  return Number(terms.ratePercent) / 100 / PERIODS_PER_MONTH[terms.frequency]
 }
 
 /** Full repayment schedule for a new loan. */
@@ -130,12 +139,16 @@ export function buildSchedule(
 ): Quote {
   const n = terms.installmentCount
   const P = terms.principal
+  const overall = terms.interestBasis === 'overall'
   const r = periodRate(terms)
   const dates = dueDates(start, terms.frequency, n, cal)
   const rows: ScheduleRow[] = []
 
-  if (terms.interestMethod === 'flat' || r === 0) {
-    const interest = Math.round(P * r * n)
+  if (overall || terms.interestMethod === 'flat' || r === 0) {
+    // An overall rate is one charge on the amount, however long the loan runs.
+    const interest = overall
+      ? Math.round((P * Number(terms.ratePercent)) / 100)
+      : Math.round(P * r * n)
     const total = P + interest
     const installment = Math.ceil(total / n)
     let paidPrincipal = 0
@@ -210,8 +223,51 @@ export function respread(
   })
 }
 
-export function processingFee(principal: Kobo, feePercent: string): Kobo {
-  return kobo(Math.round((principal * Number(feePercent)) / 100))
+export function processingFee(principal: Kobo, rule: FeeRule): Kobo {
+  switch (rule.type) {
+    case 'none':
+      return kobo(0)
+    case 'flat':
+      return rule.amount
+    case 'percentage':
+      return kobo(Math.round((principal * Number(rule.percent)) / 100))
+  }
+}
+
+/** One-line description of a fee rule, e.g. "2% of the amount", "₦5,000 flat", "None". */
+export function describeFee(rule: FeeRule, format: (k: Kobo) => string): string {
+  switch (rule.type) {
+    case 'none':
+      return 'None'
+    case 'flat':
+      return `${format(rule.amount)} flat`
+    case 'percentage':
+      return `${rule.percent}% of the amount`
+  }
+}
+
+/** Penalty for `lateDays` days past the grace period on `arrears`. */
+export function penaltyFor(rule: PenaltyRule, arrears: Kobo, lateDays: number): Kobo {
+  if (arrears <= 0 || lateDays <= 0) return kobo(0)
+  const perDay = rule.type === 'flat' ? rule.amountPerDay : (arrears * Number(rule.percentPerDay)) / 100
+  const cap = (arrears * Number(rule.capPercent)) / 100
+  return kobo(Math.round(Math.min(perDay * lateDays, cap)))
+}
+
+/** One-line description of a penalty rule. */
+export function describePenalty(rule: PenaltyRule, format: (k: Kobo) => string): string {
+  const per = rule.type === 'flat' ? `${format(rule.amountPerDay)} a day` : `${rule.percentPerDay}% a day`
+  return `${per} after ${rule.graceDays} days, up to ${rule.capPercent}% of arrears`
+}
+
+/** One-line description of the interest terms. */
+export function describeInterest(t: {
+  ratePercent: string
+  interestBasis: InterestBasis
+  interestMethod: InterestMethod
+}): string {
+  if (t.interestBasis === 'overall') return `${t.ratePercent}% overall`
+  return `${t.ratePercent}% a month, ${t.interestMethod === 'flat' ? 'flat' : 'reducing balance'}`
 }
 
 // ── Standing: how far along the loan is on a given day ─────────────────────
@@ -258,16 +314,9 @@ export function standing(
     return { ...row, paid: kobo(paid), status }
   })
   const daysInArrears = firstUnpaidPast ? daysBetween(firstUnpaidPast, today) : 0
-  let penaltyDue = 0
-  if (penalty && arrears > 0) {
-    const lateDays = Math.max(0, daysInArrears - penalty.graceDays)
-    penaltyDue = Math.round(
-      Math.min(
-        (arrears * Number(penalty.percentPerDay) * lateDays) / 100,
-        (arrears * Number(penalty.capPercent)) / 100,
-      ),
-    )
-  }
+  const penaltyDue = penalty
+    ? penaltyFor(penalty, kobo(arrears), Math.max(0, daysInArrears - penalty.graceDays))
+    : 0
   return {
     rows: out,
     arrears: kobo(arrears),

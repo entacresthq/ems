@@ -11,8 +11,14 @@ import type {
   PaymentMethod,
 } from '@/types'
 import { api } from './client'
-import { decodePage, type Wire } from './decode'
-import { decode, type WireApproval, type WireLoan, type WireLoanDetail } from './decoders'
+import { decodePage } from './decode'
+import {
+  decode,
+  type WireApproval,
+  type WireLoan,
+  type WireLoanDetail,
+  type WireLoanProduct,
+} from './decoders'
 
 export const loanKeys = {
   all: ['loans'] as const,
@@ -31,6 +37,14 @@ const encodeProduct = (p: Partial<LoanProductInput>) => ({
   ...p,
   minAmount: p.minAmount === undefined ? undefined : toDecimal(p.minAmount),
   maxAmount: p.maxAmount === undefined ? undefined : toDecimal(p.maxAmount),
+  processingFee:
+    p.processingFee?.type === 'flat'
+      ? { type: 'flat', amount: toDecimal(p.processingFee.amount) }
+      : p.processingFee,
+  penalty:
+    p.penalty?.type === 'flat'
+      ? { ...p.penalty, amountPerDay: toDecimal(p.penalty.amountPerDay) }
+      : p.penalty,
 })
 
 export const loansApi = {
@@ -73,19 +87,19 @@ export const loansApi = {
 
 export const loanProductsApi = {
   async list(status?: LoanProduct['status']): Promise<Paginated<LoanProduct>> {
-    const page = await api.get<Paginated<Wire<LoanProduct>>>('/loan-products/', {
+    const page = await api.get<Paginated<WireLoanProduct>>('/loan-products/', {
       query: { pageSize: 100, status },
     })
     return decodePage(page, decode.loanProduct)
   },
   async create(input: LoanProductInput): Promise<LoanProduct> {
     return decode.loanProduct(
-      await api.post<Wire<LoanProduct>>('/loan-products/', encodeProduct(input)),
+      await api.post<WireLoanProduct>('/loan-products/', encodeProduct(input)),
     )
   },
   async update(id: Id, input: Partial<LoanProductInput>): Promise<LoanProduct> {
     return decode.loanProduct(
-      await api.patch<Wire<LoanProduct>>(`/loan-products/${id}/`, encodeProduct(input)),
+      await api.patch<WireLoanProduct>(`/loan-products/${id}/`, encodeProduct(input)),
     )
   },
 }

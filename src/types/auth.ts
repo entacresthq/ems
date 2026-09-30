@@ -14,6 +14,14 @@ export type Role = (typeof ROLES)[number]
 /** Roles based at headquarters rather than a branch. */
 export const HEADQUARTERS_ROLES: readonly Role[] = ['md', 'general_manager', 'admin']
 
+/**
+ * The MD and general managers approve everyone else's requests, so what they
+ * start themselves (loans, reversals, large withdrawals, closures) needs no approval.
+ */
+export const SELF_APPROVING_ROLES: readonly Role[] = ['md', 'general_manager']
+export const approvesOwnRequests = (staff: { role: Role }) =>
+  SELF_APPROVING_ROLES.includes(staff.role)
+
 export const ROLE_LABELS: Record<Role, string> = {
   md: 'Managing director',
   general_manager: 'General manager',

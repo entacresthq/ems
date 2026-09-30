@@ -42,6 +42,7 @@ describe('sign-in flow', () => {
     tokenStore.set(null)
     queryClient.clear()
     resetMockDb()
+    window.localStorage.removeItem('ems.rememberedEmail')
   })
 
   it('sends a signed-out visitor to the login page', async () => {
@@ -120,5 +121,35 @@ describe('sign-in flow', () => {
     await user.type(screen.getByLabelText('Password'), 'Demo@2026')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     expect(await screen.findByText(/Your account is suspended/)).toBeInTheDocument()
+  })
+
+  it('remembers the email when the box is ticked, and fills it in next time', async () => {
+    renderApp('/login')
+    const user = userEvent.setup()
+    await user.type(await screen.findByLabelText('Email address'), 'md@ems.ng')
+    await user.type(screen.getByLabelText('Password'), 'Demo@2026')
+    await user.click(screen.getByLabelText('Remember my email address on this computer'))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByLabelText('Sign-in code')
+    expect(window.localStorage.getItem('ems.rememberedEmail')).toBe('md@ems.ng')
+    // The password is never kept.
+    expect(JSON.stringify({ ...window.localStorage })).not.toContain('Demo@2026')
+  })
+
+  it('does not keep the email when the box is left empty', async () => {
+    renderApp('/login')
+    const user = userEvent.setup()
+    await user.type(await screen.findByLabelText('Email address'), 'md@ems.ng')
+    await user.type(screen.getByLabelText('Password'), 'Demo@2026')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByLabelText('Sign-in code')
+    expect(window.localStorage.getItem('ems.rememberedEmail')).toBe(null)
+  })
+
+  it('starts with the remembered email filled in and the box ticked', async () => {
+    window.localStorage.setItem('ems.rememberedEmail', 'md@ems.ng')
+    renderApp('/login')
+    expect(await screen.findByLabelText('Email address')).toHaveValue('md@ems.ng')
+    expect(screen.getByLabelText('Remember my email address on this computer')).toBeChecked()
   })
 })

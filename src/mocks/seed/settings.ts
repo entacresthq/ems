@@ -1,6 +1,7 @@
 import { ROLE_PERMISSIONS } from '@/lib/permissions'
 import { naira } from '@/lib/money'
 import type { BusinessSettings, Holiday, Role, SmsTemplate } from '@/types'
+import { DEFAULT_ACCOUNT_NUMBER_FORMAT } from '@/lib/accountNumber'
 
 /**
  * Nigerian public holidays for 2026. Islamic holidays depend on the moon
@@ -91,6 +92,7 @@ export function defaultSettings(updatedAt: string): BusinessSettings {
     workingDays: [1, 2, 3, 4, 5, 6],
     holidays: HOLIDAYS_2026,
     largeWithdrawalThreshold: naira(500_000),
+    accountNumberFormat: { ...DEFAULT_ACCOUNT_NUMBER_FORMAT },
     reversalWindowDays: 30,
     fieldSyncMaxAgeDays: 3,
     smsTemplates: DEFAULT_SMS_TEMPLATES,

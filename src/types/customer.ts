@@ -11,13 +11,20 @@ export interface NextOfKin {
 }
 
 export interface Guarantor {
+  /** Stable id so photos and signatures stay with the right person when the list is edited. */
+  id: Id
   fullName: string
   phone: string
   address: string
   relationship: string
   occupation: string
   bvn: string | null
+  photoUrl: string | null
+  signatureUrl: string | null
 }
+
+/** What the form sends. Images are uploaded separately, after the guarantor is saved. */
+export type GuarantorInput = Omit<Guarantor, 'id' | 'photoUrl' | 'signatureUrl'> & { id?: Id }
 
 export interface Customer {
   id: Id
@@ -71,7 +78,7 @@ export interface CustomerInput {
   branchId: Id
   officerId: Id
   nextOfKin: NextOfKin | null
-  guarantors: Guarantor[]
+  guarantors: GuarantorInput[]
   /** Field registrations: the thrift plan to open once approved. */
   thriftPlanId?: Id | null
 }

@@ -154,13 +154,13 @@ function ReportView({ reportKey }: { reportKey: string }) {
               className="flex items-end gap-2"
               onSubmit={(e) => {
                 e.preventDefault()
-                list.setFilter('account', accountInput.replace(/\D/g, '') || undefined)
+                list.setFilter('account', accountInput.replace(/[^A-Za-z0-9-]/g, '').toUpperCase() || undefined)
               }}
             >
               <TextInput
                 label="Account number"
-                inputMode="numeric"
-                maxLength={10}
+                autoCapitalize="characters"
+                maxLength={24}
                 className="h-9 font-mono"
                 value={accountInput}
                 onChange={(e) => setAccountInput(e.target.value)}
@@ -245,7 +245,7 @@ function ReportView({ reportKey }: { reportKey: string }) {
       {needsAccount ? (
         <EmptyState
           title="Enter an account number"
-          description="Type the 10-digit account number above to see its statement for the chosen dates."
+          description="Type the account number above to see its statement for the chosen dates."
         />
       ) : result.isPending ? (
         <LoadingState label="Running the report…" />

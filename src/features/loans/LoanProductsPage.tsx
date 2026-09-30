@@ -10,13 +10,27 @@ import { Alert } from '@/components/ui/Alert'
 import { Button } from '@/components/ui/Button'
 import { Dialog } from '@/components/ui/Dialog'
 import { PageHeader } from '@/components/ui/PageHeader'
+import { SegmentedControl, Tabs } from '@/components/ui/Tabs'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { useToast } from '@/components/ui/Toast'
 import { useCurrentUser } from '@/features/auth/AuthProvider'
-import { buildSchedule } from '@/lib/loans'
+import {
+  buildSchedule,
+  describeFee,
+  describeInterest,
+  describePenalty,
+} from '@/lib/loans'
 import { formatNaira, naira, type Kobo } from '@/lib/money'
 import { hasPermission } from '@/lib/permissions'
-import type { InterestMethod, LoanProduct, RepaymentFrequency } from '@/types'
+import type {
+  FeeRule,
+  InterestBasis,
+  InterestMethod,
+  LoanKind,
+  LoanProduct,
+  PenaltyRule,
+  RepaymentFrequency,
+} from '@/types'
 
 export const FREQUENCY_UNIT: Record<RepaymentFrequency, [string, string]> = {
   daily: ['day', 'days'],
@@ -29,14 +43,26 @@ export function tenorLabel(count: number, frequency: RepaymentFrequency) {
   return `${count} ${count === 1 ? one : many}`
 }
 
+export const KIND_LABEL: Record<LoanKind, string> = {
+  cash: 'Cash loans',
+  bnpl: 'Buy now pay later',
+}
+
+const money = (k: Kobo) => formatNaira(k, { trimZeroKobo: true })
+
 export function LoanProductsPage() {
   const user = useCurrentUser()
   const canManage = hasPermission(user, 'loan_products.manage')
+  const [kind, setKind] = useState<LoanKind>('cash')
   const [editing, setEditing] = useState<LoanProduct | 'new' | null>(null)
   const query = useQuery({
     queryKey: loanProductKeys.list(),
     queryFn: () => loanProductsApi.list(),
   })
+
+  const all = query.data?.results
+  const rows = all?.filter((p) => p.kind === kind)
+  const count = (k: LoanKind) => all?.filter((p) => p.kind === k).length
 
   const columns: Column<LoanProduct>[] = [
     { id: 'name', header: 'Product', cell: (p) => <span className="font-medium">{p.name}</span> },
@@ -45,29 +71,26 @@ export function LoanProductsPage() {
       header: 'Repayment',
       cell: (p) => p.repaymentFrequency[0]!.toUpperCase() + p.repaymentFrequency.slice(1),
     },
-    {
-      id: 'rate',
-      header: 'Interest',
-      cell: (p) =>
-        `${p.monthlyRatePercent}% a month, ${p.interestMethod === 'flat' ? 'flat' : 'reducing balance'}`,
-    },
+    { id: 'rate', header: 'Interest', cell: (p) => describeInterest(p) },
     {
       id: 'range',
-      header: 'Amount',
-      cell: (p) =>
-        `${formatNaira(p.minAmount, { trimZeroKobo: true })} – ${formatNaira(p.maxAmount, { trimZeroKobo: true })}`,
+      header: kind === 'bnpl' ? 'Item price' : 'Amount',
+      cell: (p) => `${money(p.minAmount)} – ${money(p.maxAmount)}`,
     },
     {
       id: 'tenor',
       header: 'Tenor',
       cell: (p) => `${p.minTenor}–${tenorLabel(p.maxTenor, p.repaymentFrequency)}`,
     },
-    { id: 'fee', header: 'Fee', align: 'right', cell: (p) => `${p.processingFeePercent}%` },
+    {
+      id: 'fee',
+      header: 'Processing fee',
+      cell: (p) => describeFee(p.processingFee, money),
+    },
     {
       id: 'penalty',
       header: 'Late penalty',
-      cell: (p) =>
-        `${p.penalty.percentPerDay}% a day after ${p.penalty.graceDays} days, up to ${p.penalty.capPercent}%`,
+      cell: (p) => describePenalty(p.penalty, money),
     },
     { id: 'status', header: 'Status', cell: (p) => <StatusBadge status={p.status} /> },
   ]
@@ -89,10 +112,24 @@ export function LoanProductsPage() {
           )
         }
       />
+      <Tabs
+        label="Loan product type"
+        value={kind}
+        onChange={setKind}
+        items={[
+          { value: 'cash', label: KIND_LABEL.cash, count: count('cash') },
+          { value: 'bnpl', label: KIND_LABEL.bnpl, count: count('bnpl') },
+        ]}
+      />
+      <p className="text-ink-2 my-3 text-sm">
+        {kind === 'cash'
+          ? 'The customer receives money and repays it in installments.'
+          : 'The company buys the item for the customer, who repays the price plus interest in installments.'}
+      </p>
       <DataTable
-        caption="Loan products"
+        caption={KIND_LABEL[kind]}
         columns={columns}
-        rows={query.data?.results}
+        rows={rows}
         getRowId={(p) => p.id}
         isLoading={query.isPending}
         error={query.error}
@@ -100,7 +137,7 @@ export function LoanProductsPage() {
         onRowClick={canManage ? setEditing : undefined}
         density="comfortable"
         empty={{
-          title: 'No loan products yet',
+          title: kind === 'cash' ? 'No cash loan products yet' : 'No buy now pay later products yet',
           description: canManage
             ? 'Create one with “New product”.'
             : 'An administrator needs to set up loan products.',
@@ -109,6 +146,7 @@ export function LoanProductsPage() {
       {editing && (
         <ProductDialog
           product={editing === 'new' ? null : editing}
+          initialKind={kind}
           onClose={() => setEditing(null)}
         />
       )}
@@ -116,23 +154,46 @@ export function LoanProductsPage() {
   )
 }
 
-function ProductDialog({ product, onClose }: { product: LoanProduct | null; onClose: () => void }) {
+function ProductDialog({
+  product,
+  initialKind,
+  onClose,
+}: {
+  product: LoanProduct | null
+  initialKind: LoanKind
+  onClose: () => void
+}) {
+  const [kind, setKind] = useState<LoanKind>(product?.kind ?? initialKind)
+  const bnpl = kind === 'bnpl'
   const [form, setForm] = useState({
     name: product?.name ?? '',
     interestMethod: product?.interestMethod ?? ('flat' as InterestMethod),
-    monthlyRatePercent: product?.monthlyRatePercent ?? '4.00',
+    interestBasis: product?.interestBasis ?? ('monthly' as InterestBasis),
+    ratePercent: product?.ratePercent ?? '4.00',
     repaymentFrequency: product?.repaymentFrequency ?? ('weekly' as RepaymentFrequency),
     minTenor: String(product?.minTenor ?? 8),
     maxTenor: String(product?.maxTenor ?? 24),
-    processingFeePercent: product?.processingFeePercent ?? '2.00',
-    percentPerDay: product?.penalty.percentPerDay ?? '1.00',
+    feeType: product?.processingFee.type ?? ('percentage' as FeeRule['type']),
+    feePercent: product?.processingFee.type === 'percentage' ? product.processingFee.percent : '2.00',
+    penaltyType: product?.penalty.type ?? ('percentage' as PenaltyRule['type']),
+    percentPerDay: product?.penalty.type === 'percentage' ? product.penalty.percentPerDay : '1.00',
     graceDays: String(product?.penalty.graceDays ?? 3),
     capPercent: product?.penalty.capPercent ?? '25.00',
     requiresGuarantor: product?.requiresGuarantor ?? true,
     status: product?.status ?? ('active' as LoanProduct['status']),
   })
-  const [minAmount, setMinAmount] = useState<Kobo | null>(product?.minAmount ?? naira(100_000))
-  const [maxAmount, setMaxAmount] = useState<Kobo | null>(product?.maxAmount ?? naira(1_000_000))
+  const [feeFlat, setFeeFlat] = useState<Kobo | null>(
+    product?.processingFee.type === 'flat' ? product.processingFee.amount : naira(2_000),
+  )
+  const [penaltyFlat, setPenaltyFlat] = useState<Kobo | null>(
+    product?.penalty.type === 'flat' ? product.penalty.amountPerDay : naira(200),
+  )
+  const [minAmount, setMinAmount] = useState<Kobo | null>(
+    product?.minAmount ?? naira(bnpl ? 50_000 : 100_000),
+  )
+  const [maxAmount, setMaxAmount] = useState<Kobo | null>(
+    product?.maxAmount ?? naira(bnpl ? 1_500_000 : 1_000_000),
+  )
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [formError, setFormError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -142,53 +203,66 @@ function ProductDialog({ product, onClose }: { product: LoanProduct | null; onCl
     (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
       setForm((f) => ({ ...f, [key]: e.target.value }))
 
+  const overall = form.interestBasis === 'overall'
+  // An overall rate is one charge on the amount, so it is always flat.
+  const interestMethod: InterestMethod = overall ? 'flat' : form.interestMethod
+  const thing = bnpl ? 'item' : 'loan'
+
   // Worked example so the admin sees what the terms mean in naira.
   const example = (() => {
     const count = Number(form.minTenor)
     const principal = minAmount
-    if (
-      !principal ||
-      !Number.isInteger(count) ||
-      count < 1 ||
-      !(Number(form.monthlyRatePercent) >= 0)
-    )
+    if (!principal || !Number.isInteger(count) || count < 1 || !(Number(form.ratePercent) >= 0))
       return null
     const q = buildSchedule(
       {
         principal,
-        monthlyRatePercent: form.monthlyRatePercent,
-        interestMethod: form.interestMethod,
+        ratePercent: form.ratePercent,
+        interestBasis: form.interestBasis,
+        interestMethod,
         frequency: form.repaymentFrequency,
         installmentCount: count,
       },
       '2026-01-05',
     )
-    return `Borrowing ${formatNaira(principal, { trimZeroKobo: true })} over ${tenorLabel(count, form.repaymentFrequency)}: ${formatNaira(q.installment)} each ${FREQUENCY_UNIT[form.repaymentFrequency][0]}, ${formatNaira(q.interest)} interest in total.`
+    return `${bnpl ? 'An item costing' : 'Borrowing'} ${money(principal)} over ${tenorLabel(count, form.repaymentFrequency)}: ${formatNaira(q.installment)} each ${FREQUENCY_UNIT[form.repaymentFrequency][0]}, ${formatNaira(q.interest)} interest in total.`
   })()
 
   const submit = async () => {
-    if (!minAmount || !maxAmount) {
-      setErrors({
-        minAmount: minAmount ? '' : 'Enter the smallest amount.',
-        maxAmount: maxAmount ? '' : 'Enter the largest amount.',
-      })
+    const local: Record<string, string> = {}
+    if (!minAmount) local.minAmount = bnpl ? 'Enter the lowest item price.' : 'Enter the smallest amount.'
+    if (!maxAmount) local.maxAmount = bnpl ? 'Enter the highest item price.' : 'Enter the largest amount.'
+    if (form.feeType === 'flat' && !feeFlat) local['processingFee.amount'] = 'Enter the fee amount.'
+    if (form.penaltyType === 'flat' && !penaltyFlat)
+      local['penalty.amountPerDay'] = 'Enter the daily penalty amount.'
+    if (Object.keys(local).length) {
+      setErrors(local)
       return
     }
+    const processingFee: FeeRule =
+      form.feeType === 'none'
+        ? { type: 'none' }
+        : form.feeType === 'flat'
+          ? { type: 'flat', amount: feeFlat! }
+          : { type: 'percentage', percent: form.feePercent }
+    const penaltyBase = { graceDays: Number(form.graceDays), capPercent: form.capPercent }
+    const penalty: PenaltyRule =
+      form.penaltyType === 'flat'
+        ? { ...penaltyBase, type: 'flat', amountPerDay: penaltyFlat! }
+        : { ...penaltyBase, type: 'percentage', percentPerDay: form.percentPerDay }
     const input: LoanProductInput = {
       name: form.name.trim(),
-      interestMethod: form.interestMethod,
-      monthlyRatePercent: form.monthlyRatePercent,
+      kind,
+      interestMethod,
+      interestBasis: form.interestBasis,
+      ratePercent: form.ratePercent,
       repaymentFrequency: form.repaymentFrequency,
       minTenor: Number(form.minTenor),
       maxTenor: Number(form.maxTenor),
-      minAmount,
-      maxAmount,
-      processingFeePercent: form.processingFeePercent,
-      penalty: {
-        percentPerDay: form.percentPerDay,
-        graceDays: Number(form.graceDays),
-        capPercent: form.capPercent,
-      },
+      minAmount: minAmount!,
+      maxAmount: maxAmount!,
+      processingFee,
+      penalty,
       requiresGuarantor: form.requiresGuarantor,
       status: form.status,
     }
@@ -222,7 +296,7 @@ function ProductDialog({ product, onClose }: { product: LoanProduct | null; onCl
       onClose={onClose}
       dismissible={!busy}
       size="lg"
-      title={product ? `Edit ${product.name}` : 'New loan product'}
+      title={product ? `Edit ${product.name}` : `New ${bnpl ? 'buy now pay later' : 'cash loan'} product`}
       description={product ? 'Loans already given keep the terms they were given on.' : undefined}
       footer={
         <>
@@ -241,13 +315,31 @@ function ProductDialog({ product, onClose }: { product: LoanProduct | null; onCl
             {formError}
           </Alert>
         )}
+        {!product && (
+          <div className="sm:col-span-2">
+            <SegmentedControl
+              label="Product type"
+              value={kind}
+              onChange={setKind}
+              options={[
+                { value: 'cash', label: 'Cash loan' },
+                { value: 'bnpl', label: 'Buy now pay later' },
+              ]}
+            />
+          </div>
+        )}
+        <p className="text-ink-2 text-sm sm:col-span-2">
+          {bnpl
+            ? 'The company buys the item for the customer, who then repays the price plus interest.'
+            : 'The customer receives money and repays it with interest.'}
+        </p>
         <TextInput
           label="Product name"
           containerClassName="sm:col-span-2"
           value={form.name}
           onChange={set('name')}
           error={errors.name}
-          placeholder="e.g. Weekly trader loan"
+          placeholder={bnpl ? 'e.g. Phone and appliance plan' : 'e.g. Weekly trader loan'}
         />
         <Select
           label="Repayment"
@@ -260,37 +352,49 @@ function ProductDialog({ product, onClose }: { product: LoanProduct | null; onCl
           <option value="monthly">Monthly</option>
         </Select>
         <Select
-          label="Interest method"
-          value={form.interestMethod}
-          onChange={set('interestMethod')}
-          error={errors.interestMethod}
+          label="Interest rate applies"
+          value={form.interestBasis}
+          onChange={set('interestBasis')}
+          error={errors.interestBasis}
         >
-          <option value="flat">Flat (on the original amount)</option>
-          <option value="reducing_balance">Reducing balance</option>
+          <option value="monthly">Monthly (every month the {thing} runs)</option>
+          <option value="overall">Overall (once, for the whole {thing})</option>
         </Select>
         <TextInput
-          label="Interest rate (% a month)"
+          label={overall ? 'Interest rate (% overall)' : 'Interest rate (% a month)'}
           inputMode="decimal"
-          value={form.monthlyRatePercent}
-          onChange={set('monthlyRatePercent')}
-          error={errors.monthlyRatePercent}
+          value={form.ratePercent}
+          onChange={set('ratePercent')}
+          error={errors.ratePercent}
+          hint={
+            overall
+              ? `Charged once on the ${bnpl ? 'item price' : 'amount'}, however long it runs.`
+              : undefined
+          }
         />
-        <TextInput
-          label="Processing fee (%)"
-          inputMode="decimal"
-          value={form.processingFeePercent}
-          onChange={set('processingFeePercent')}
-          error={errors.processingFeePercent}
-          hint="Deducted from the amount paid out."
-        />
+        {overall ? (
+          <p className="text-ink-2 self-end pb-2 text-sm">
+            An overall rate is charged flat and shared equally across the installments.
+          </p>
+        ) : (
+          <Select
+            label="Interest method"
+            value={form.interestMethod}
+            onChange={set('interestMethod')}
+            error={errors.interestMethod}
+          >
+            <option value="flat">Flat (on the original amount)</option>
+            <option value="reducing_balance">Reducing balance</option>
+          </Select>
+        )}
         <MoneyInput
-          label="Smallest amount"
+          label={bnpl ? 'Lowest item price' : 'Smallest amount'}
           value={minAmount}
           onChange={setMinAmount}
           error={errors.minAmount}
         />
         <MoneyInput
-          label="Largest amount"
+          label={bnpl ? 'Highest item price' : 'Largest amount'}
           value={maxAmount}
           onChange={setMaxAmount}
           error={errors.maxAmount}
@@ -309,15 +413,70 @@ function ProductDialog({ product, onClose }: { product: LoanProduct | null; onCl
           onChange={set('maxTenor')}
           error={errors.maxTenor}
         />
-        <fieldset className="border-rule grid gap-4 rounded border p-4 sm:col-span-2 sm:grid-cols-3">
-          <legend className="px-1 text-sm font-semibold">Late payment penalty</legend>
-          <TextInput
-            label="% of arrears a day"
-            inputMode="decimal"
-            value={form.percentPerDay}
-            onChange={set('percentPerDay')}
-            error={errors['penalty.percentPerDay']}
-          />
+        <fieldset className="border-rule grid gap-4 rounded border p-4 sm:col-span-2 sm:grid-cols-2">
+          <legend className="px-1 text-sm font-semibold">Processing fee</legend>
+          <Select
+            label="Fee type"
+            value={form.feeType}
+            onChange={set('feeType')}
+            error={errors.processingFee}
+          >
+            <option value="percentage">Percentage of the {bnpl ? 'item price' : 'amount'}</option>
+            <option value="flat">Flat fee</option>
+            <option value="none">None</option>
+          </Select>
+          {form.feeType === 'percentage' && (
+            <TextInput
+              label="Fee (%)"
+              inputMode="decimal"
+              value={form.feePercent}
+              onChange={set('feePercent')}
+              error={errors['processingFee.percent']}
+            />
+          )}
+          {form.feeType === 'flat' && (
+            <MoneyInput
+              label="Fee amount"
+              value={feeFlat}
+              onChange={setFeeFlat}
+              error={errors['processingFee.amount']}
+            />
+          )}
+          <p className="text-ink-2 text-sm sm:col-span-2">
+            {form.feeType === 'none'
+              ? 'No processing fee is charged.'
+              : bnpl
+                ? 'The customer pays this when the item is handed over.'
+                : 'Deducted from the amount paid out.'}
+          </p>
+        </fieldset>
+        <fieldset className="border-rule grid gap-4 rounded border p-4 sm:col-span-2 sm:grid-cols-2">
+          <legend className="px-1 text-sm font-semibold">Late payment penalty (per day)</legend>
+          <Select
+            label="Penalty type"
+            value={form.penaltyType}
+            onChange={set('penaltyType')}
+            error={errors['penalty.type']}
+          >
+            <option value="percentage">Percentage of arrears a day</option>
+            <option value="flat">Flat fee a day</option>
+          </Select>
+          {form.penaltyType === 'percentage' ? (
+            <TextInput
+              label="% of arrears a day"
+              inputMode="decimal"
+              value={form.percentPerDay}
+              onChange={set('percentPerDay')}
+              error={errors['penalty.percentPerDay']}
+            />
+          ) : (
+            <MoneyInput
+              label="Amount a day"
+              value={penaltyFlat}
+              onChange={setPenaltyFlat}
+              error={errors['penalty.amountPerDay']}
+            />
+          )}
           <TextInput
             label="Grace days"
             inputMode="numeric"

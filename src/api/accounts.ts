@@ -1,7 +1,8 @@
-import type { Account, AccountListParams, Approval, Id, Paginated } from '@/types'
+import { toDecimal } from '@/lib/money'
+import type { Account, AccountListParams, Approval, Id, Paginated, SavingsTarget } from '@/types'
 import { api } from './client'
-import { decodePage, type Wire } from './decode'
-import { decode, type WireApproval } from './decoders'
+import { decodePage } from './decode'
+import { decode, type WireAccount, type WireApproval } from './decoders'
 
 export const accountKeys = {
   all: ['accounts'] as const,
@@ -11,27 +12,35 @@ export const accountKeys = {
 
 export const accountsApi = {
   async list(params: AccountListParams = {}): Promise<Paginated<Account>> {
-    const page = await api.get<Paginated<Wire<Account>>>('/accounts/', { query: { ...params } })
+    const page = await api.get<Paginated<WireAccount>>('/accounts/', { query: { ...params } })
     return decodePage(page, decode.account)
   },
   async get(id: Id): Promise<Account> {
-    return decode.account(await api.get<Wire<Account>>(`/accounts/${id}/`))
+    return decode.account(await api.get<WireAccount>(`/accounts/${id}/`))
   },
   async open(body: {
     customerId: Id
-    type: 'savings' | 'thrift'
+    type: 'savings' | 'target' | 'thrift'
     thriftPlanId: Id | null
+    /** Target savings only. */
+    target?: SavingsTarget
   }): Promise<Account> {
-    return decode.account(await api.post<Wire<Account>>('/accounts/', body))
+    const { target, ...rest } = body
+    return decode.account(
+      await api.post<WireAccount>('/accounts/', {
+        ...rest,
+        ...(target ? { target: { ...target, targetAmount: toDecimal(target.targetAmount) } } : {}),
+      }),
+    )
   },
   async freeze(id: Id, reason: string): Promise<Account> {
-    return decode.account(await api.post<Wire<Account>>(`/accounts/${id}/freeze/`, { reason }))
+    return decode.account(await api.post<WireAccount>(`/accounts/${id}/freeze/`, { reason }))
   },
   async unfreeze(id: Id): Promise<Account> {
-    return decode.account(await api.post<Wire<Account>>(`/accounts/${id}/unfreeze/`))
+    return decode.account(await api.post<WireAccount>(`/accounts/${id}/unfreeze/`))
   },
   async reactivate(id: Id): Promise<Account> {
-    return decode.account(await api.post<Wire<Account>>(`/accounts/${id}/reactivate/`))
+    return decode.account(await api.post<WireAccount>(`/accounts/${id}/reactivate/`))
   },
   async requestClosure(id: Id, reason: string): Promise<Approval> {
     return decode.approval(

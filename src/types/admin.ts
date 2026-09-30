@@ -28,6 +28,26 @@ export interface Holiday {
   name: string
 }
 
+/**
+ * How new account numbers are built, in this order:
+ * prefix, branch code, product code, year, serial number.
+ * Accounts that already exist keep the number they were given.
+ */
+export interface AccountNumberFormat {
+  /** Up to four letters or digits, e.g. "EMS". Can be empty. */
+  prefix: string
+  /** Two-digit branch code. */
+  includeBranch: boolean
+  /** Two-digit product code (savings 10, target savings 11, or the plan or loan product code). */
+  includeProduct: boolean
+  /** Last two digits of the year the account is opened. */
+  includeYear: boolean
+  /** How many digits the running serial number has (3 to 10). */
+  serialLength: number
+  /** Placed between the parts. */
+  separator: '' | '-'
+}
+
 export interface BusinessSettings {
   businessName: string
   address: string
@@ -40,6 +60,7 @@ export interface BusinessSettings {
   workingDays: number[]
   holidays: Holiday[]
   largeWithdrawalThreshold: Kobo
+  accountNumberFormat: AccountNumberFormat
   reversalWindowDays: number
   fieldSyncMaxAgeDays: number
   smsTemplates: SmsTemplate[]

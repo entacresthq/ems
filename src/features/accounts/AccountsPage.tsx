@@ -100,7 +100,7 @@ export function AccountsPage() {
     <>
       <PageHeader
         title="Accounts"
-        description="Savings, thrift and loan accounts. For loans, the balance is what is still owed."
+        description="Savings, target savings, thrift and loan accounts. For loans, the balance is what is still owed."
       />
       <DataTable
         caption="Accounts"
@@ -164,6 +164,7 @@ export function AccountsPage() {
             >
               <option value="">All types</option>
               <option value="savings">Savings</option>
+              <option value="target">Target savings</option>
               <option value="thrift">Thrift</option>
               <option value="loan">Loan</option>
             </FilterSelect>

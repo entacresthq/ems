@@ -1,4 +1,9 @@
 import { delay, http, HttpResponse } from 'msw'
+import {
+  normaliseAccountNumberFormat,
+  previewAccountNumber,
+  validateAccountNumberFormat,
+} from '@/lib/accountNumber'
 import { camelToSnake } from '@/lib/case'
 import { toLagosIso } from '@/lib/dates'
 import { formatNaira, parseDecimal } from '@/lib/money'
@@ -7,6 +12,7 @@ import {
   PERMISSIONS,
   ROLE_LABELS,
   ROLES,
+  type AccountNumberFormat,
   type BusinessSettings,
   type Holiday,
   type Permission,
@@ -204,6 +210,15 @@ export const adminHandlers = [
         .map((h) => ({ date: h.date, name: text(h.name) }))
         .sort((a, b) => a.date.localeCompare(b.date))
       changed.push('holidays')
+    }
+    if ('accountNumberFormat' in body) {
+      const f = body.accountNumberFormat as Partial<AccountNumberFormat> | undefined
+      const problem = validateAccountNumberFormat(f)
+      if (problem) errors.accountNumberFormat = [problem]
+      else {
+        next.accountNumberFormat = normaliseAccountNumberFormat(f as AccountNumberFormat)
+        changed.push(`account number format (e.g. ${previewAccountNumber(next.accountNumberFormat)})`)
+      }
     }
     if ('largeWithdrawalThreshold' in body) {
       try {

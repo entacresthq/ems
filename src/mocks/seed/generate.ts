@@ -324,20 +324,23 @@ export function generateDb(now: Date = new Date(), seed = 20260925): MockDb {
     tenors: readonly number[],
     min: number,
     max: number,
-    fee: string,
+    fee: LoanProduct['processingFee'],
     penalty: LoanProduct['penalty'],
+    extra: Partial<Pick<LoanProduct, 'kind' | 'interestBasis'>> = {},
   ): LoanProduct & { tenors: readonly number[] } => ({
     id: rng.uuid(),
     code,
     name,
+    kind: extra.kind ?? 'cash',
     interestMethod,
-    monthlyRatePercent: rate,
+    interestBasis: extra.interestBasis ?? 'monthly',
+    ratePercent: rate,
     repaymentFrequency: frequency,
     minTenor: tenors[0] ?? 1,
     maxTenor: tenors[tenors.length - 1] ?? 1,
     minAmount: naira(min),
     maxAmount: naira(max),
-    processingFeePercent: fee,
+    processingFee: fee,
     penalty,
     requiresGuarantor: true,
     status: 'active',
@@ -353,12 +356,8 @@ export function generateDb(now: Date = new Date(), seed = 20260925): MockDb {
       [30, 60, 90, 120],
       50_000,
       1_000_000,
-      '2.00',
-      {
-        percentPerDay: '0.50',
-        graceDays: 2,
-        capPercent: '20.00',
-      },
+      { type: 'percentage', percent: '2.00' },
+      { type: 'percentage', percentPerDay: '0.50', graceDays: 2, capPercent: '20.00' },
     ),
     product(
       '32',
@@ -369,12 +368,8 @@ export function generateDb(now: Date = new Date(), seed = 20260925): MockDb {
       [8, 12, 16, 24],
       100_000,
       3_000_000,
-      '2.50',
-      {
-        percentPerDay: '1.00',
-        graceDays: 3,
-        capPercent: '25.00',
-      },
+      { type: 'percentage', percent: '2.50' },
+      { type: 'percentage', percentPerDay: '1.00', graceDays: 3, capPercent: '25.00' },
     ),
     product(
       '33',
@@ -385,12 +380,23 @@ export function generateDb(now: Date = new Date(), seed = 20260925): MockDb {
       [3, 6, 9, 12],
       500_000,
       10_000_000,
-      '3.00',
-      {
-        percentPerDay: '1.00',
-        graceDays: 5,
-        capPercent: '30.00',
-      },
+      { type: 'percentage', percent: '3.00' },
+      { type: 'percentage', percentPerDay: '1.00', graceDays: 5, capPercent: '30.00' },
+    ),
+    // Buy now pay later: the company buys the item, the customer repays weekly.
+    // Demonstrates an overall rate, a flat fee and a flat daily penalty.
+    product(
+      '34',
+      'Buy now pay later (weekly)',
+      'weekly',
+      'flat',
+      '15.00',
+      [8, 12, 16],
+      50_000,
+      1_500_000,
+      { type: 'flat', amount: naira(2_000) },
+      { type: 'flat', amountPerDay: naira(200), graceDays: 3, capPercent: '20.00' },
+      { kind: 'bnpl', interestBasis: 'overall' },
     ),
   ]
 
@@ -517,6 +523,7 @@ export function generateDb(now: Date = new Date(), seed = 20260925): MockDb {
         openedAt,
         closedAt: null,
         lastTransactionAt: null,
+        target: null,
       }
       accounts.push(account)
       return account
@@ -701,7 +708,8 @@ export function generateDb(now: Date = new Date(), seed = 20260925): MockDb {
       const quote = buildSchedule(
         {
           principal,
-          monthlyRatePercent: loanProduct.monthlyRatePercent,
+          ratePercent: loanProduct.ratePercent,
+          interestBasis: loanProduct.interestBasis,
           interestMethod: loanProduct.interestMethod,
           frequency: freq,
           installmentCount: count,
@@ -710,12 +718,15 @@ export function generateDb(now: Date = new Date(), seed = 20260925): MockDb {
         SEED_CALENDAR,
       )
       const total = quote.totalRepayable
-      const fee = processingFee(principal, loanProduct.processingFeePercent)
+      const fee = processingFee(principal, loanProduct.processingFee)
 
       // Borrowers name one or two guarantors.
       for (let g = rng.int(1, 2); g > 0; g--) {
         const guarantor = pickName(rng.chance(0.5) ? 'female' : 'male')
         customer.guarantors.push({
+          id: rng.uuid(),
+          photoUrl: null,
+          signatureUrl: null,
           fullName: `${guarantor.first} ${guarantor.last}`,
           phone: phone(),
           address: `${rng.int(1, 120)} ${rng.pick(STREETS)}, ${rng.pick(bSeed.areas)}`,
@@ -812,8 +823,12 @@ export function generateDb(now: Date = new Date(), seed = 20260925): MockDb {
         frequency: freq,
         installmentAmount: quote.installment,
         installmentCount: count,
+        kind: loanProduct.kind,
         interestMethod: loanProduct.interestMethod,
-        monthlyRatePercent: loanProduct.monthlyRatePercent,
+        interestBasis: loanProduct.interestBasis,
+        ratePercent: loanProduct.ratePercent,
+        itemDescription: null,
+        supplierName: null,
         processingFee: fee,
         penaltiesCharged: ZERO,
         status: closed ? 'closed' : 'active',
@@ -1035,7 +1050,8 @@ export function generateDb(now: Date = new Date(), seed = 20260925): MockDb {
       const quote = buildSchedule(
         {
           principal,
-          monthlyRatePercent: loanProduct.monthlyRatePercent,
+          ratePercent: loanProduct.ratePercent,
+          interestBasis: loanProduct.interestBasis,
           interestMethod: loanProduct.interestMethod,
           frequency: loanProduct.repaymentFrequency,
           installmentCount: count,
@@ -1067,9 +1083,13 @@ export function generateDb(now: Date = new Date(), seed = 20260925): MockDb {
         frequency: loanProduct.repaymentFrequency,
         installmentAmount: quote.installment,
         installmentCount: count,
+        kind: loanProduct.kind,
         interestMethod: loanProduct.interestMethod,
-        monthlyRatePercent: loanProduct.monthlyRatePercent,
-        processingFee: processingFee(principal, loanProduct.processingFeePercent),
+        interestBasis: loanProduct.interestBasis,
+        ratePercent: loanProduct.ratePercent,
+        itemDescription: null,
+        supplierName: null,
+        processingFee: processingFee(principal, loanProduct.processingFee),
         penaltiesCharged: ZERO,
         status: approved ? 'approved' : 'pending_approval',
         purpose: rng.pick(LOAN_PURPOSES),
@@ -1077,6 +1097,9 @@ export function generateDb(now: Date = new Date(), seed = 20260925): MockDb {
           ? [...customer.guarantors]
           : [
               {
+                id: rng.uuid(),
+                photoUrl: null,
+                signatureUrl: null,
                 fullName: 'Rasheed Balogun',
                 phone: phone(),
                 address: `12 Market Road, ${customer.area}`,

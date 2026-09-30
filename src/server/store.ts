@@ -1,4 +1,5 @@
 import type { MockDb } from '@/mocks/seed/generate'
+import { migrateLoanRecords } from '@/mocks/migrate'
 import type { BusinessSettings } from '@/types'
 import { SqliteBackend } from './storage/sqlite'
 import {
@@ -91,6 +92,8 @@ export class Store {
       })
       ;(data[collection] as unknown[]) = records
     }
+    // Records saved before loan kinds existed are upgraded in memory; save() writes them back.
+    migrateLoanRecords(data)
     return data
   }
 

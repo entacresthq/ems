@@ -17,7 +17,7 @@ import { useToast } from '@/components/ui/Toast'
 import { useBranchScope } from '@/features/organisation/BranchScope'
 import { cn } from '@/lib/cn'
 import { formatDate, todayIso } from '@/lib/dates'
-import { buildSchedule, processingFee } from '@/lib/loans'
+import { buildSchedule, describeFee, describeInterest, processingFee } from '@/lib/loans'
 import { formatNaira, kobo, type Kobo } from '@/lib/money'
 import { formatPhone } from '@/lib/phone'
 import type { Collateral, Customer, Loan } from '@/types'
@@ -150,12 +150,15 @@ function ApplicationForm({ customer, topUp }: { customer: Customer; topUp: Loan 
   const [principal, setPrincipal] = useState<Kobo | null>(null)
   const [count, setCount] = useState('')
   const [purpose, setPurpose] = useState('')
+  const [itemDescription, setItemDescription] = useState('')
+  const [supplierName, setSupplierName] = useState('')
   const [collateral, setCollateral] = useState<
     (Omit<Collateral, 'estimatedValue'> & { estimatedValue: Kobo | null })[]
   >([])
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [formError, setFormError] = useState<string | null>(null)
   const product = products.data?.results.find((p) => p.id === productId)
+  const bnpl = product?.kind === 'bnpl'
 
   const quote = useMemo(() => {
     const n = Number(count)
@@ -163,16 +166,20 @@ function ApplicationForm({ customer, topUp }: { customer: Customer; topUp: Loan 
     const q = buildSchedule(
       {
         principal,
-        monthlyRatePercent: product.monthlyRatePercent,
+        ratePercent: product.ratePercent,
+        interestBasis: product.interestBasis,
         interestMethod: product.interestMethod,
         frequency: product.repaymentFrequency,
         installmentCount: n,
       },
       todayIso(),
     )
-    const fee = processingFee(principal, product.processingFeePercent)
+    const fee = processingFee(principal, product.processingFee)
     const settle = topUp?.outstanding ?? kobo(0)
-    return { ...q, fee, settle, payout: kobo(principal - fee - settle) }
+    // Cash loan: the customer gets the amount less fee. BNPL: the company pays
+    // the supplier the full price and the customer pays the fee at handover.
+    const payout = product.kind === 'bnpl' ? principal : kobo(principal - fee - settle)
+    return { ...q, fee, settle, payout }
   }, [product, principal, count, topUp])
 
   const checks = [
@@ -201,17 +208,25 @@ function ApplicationForm({ customer, topUp }: { customer: Customer; topUp: Loan 
         productId,
         principal: principal!,
         installmentCount: Number(count),
-        purpose,
+        purpose: bnpl ? itemDescription.trim() : purpose,
+        ...(bnpl ? { itemDescription: itemDescription.trim(), supplierName: supplierName.trim() } : {}),
         collateral: collateral.map((c) => ({ ...c, estimatedValue: c.estimatedValue ?? kobo(0) })),
         topUpOfId: topUp?.id ?? null,
       }),
     onSuccess: async (loan) => {
       await queryClient.invalidateQueries({ queryKey: ['loans'] })
       await queryClient.invalidateQueries({ queryKey: ['approvals'] })
-      toast({
-        title: 'Application sent for approval',
-        description: `${loan.loanNumber} for ${loan.customerName}.`,
-      })
+      toast(
+        loan.status === 'approved'
+          ? {
+              title: 'Loan approved',
+              description: `${loan.loanNumber} for ${loan.customerName} was approved automatically. It is ready to pay out.`,
+            }
+          : {
+              title: 'Application sent for approval',
+              description: `${loan.loanNumber} for ${loan.customerName}.`,
+            },
+      )
       navigate(`/loans/${loan.id}`)
     },
     onError: (e) => {
@@ -235,8 +250,11 @@ function ApplicationForm({ customer, topUp }: { customer: Customer; topUp: Loan 
     if (product && (!Number.isInteger(n) || n < product.minTenor || n > product.maxTenor)) {
       next.installmentCount = `Between ${product.minTenor} and ${product.maxTenor} installments.`
     }
-    if (purpose.trim().length < 5) next.purpose = 'Say what the money is for.'
-    if (quote && quote.payout <= 0)
+    if (bnpl) {
+      if (itemDescription.trim().length < 3) next.itemDescription = 'Say what the company is buying.'
+      if (supplierName.trim().length < 2) next.supplierName = 'Enter who the company will pay.'
+    } else if (purpose.trim().length < 5) next.purpose = 'Say what the money is for.'
+    if (!bnpl && quote && quote.payout <= 0)
       next.principal = 'The top-up must be more than the old balance plus the fee.'
     setErrors(next)
     return Object.keys(next).length === 0
@@ -299,15 +317,23 @@ function ApplicationForm({ customer, topUp }: { customer: Customer; topUp: Loan 
               disabled={Boolean(topUp)}
             >
               <option value="">{products.isPending ? 'Loading…' : 'Choose…'}</option>
-              {products.data?.results.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} · {p.monthlyRatePercent}% a month{' '}
-                  {p.interestMethod === 'flat' ? 'flat' : 'reducing'}
-                </option>
-              ))}
+              {(['cash', 'bnpl'] as const).map((kind) => {
+                const group = products.data?.results.filter(
+                  (p) => p.kind === kind && (!topUp || kind === 'cash'),
+                )
+                return group?.length ? (
+                  <optgroup key={kind} label={kind === 'cash' ? 'Cash loans' : 'Buy now pay later'}>
+                    {group.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} · {describeInterest(p)}
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : null
+              })}
             </Select>
             <MoneyInput
-              label="Amount"
+              label={bnpl ? 'Item price' : 'Amount'}
               value={principal}
               onChange={setPrincipal}
               error={errors.principal}
@@ -334,14 +360,33 @@ function ApplicationForm({ customer, topUp }: { customer: Customer; topUp: Loan 
               }
               disabled={!product}
             />
-            <TextArea
-              label="What is the loan for?"
-              containerClassName="sm:col-span-2"
-              rows={2}
-              value={purpose}
-              onChange={(e) => setPurpose(e.target.value)}
-              error={errors.purpose}
-            />
+            {bnpl ? (
+              <>
+                <TextInput
+                  label="Item the company will buy"
+                  value={itemDescription}
+                  onChange={(e) => setItemDescription(e.target.value)}
+                  error={errors.itemDescription}
+                  placeholder="e.g. Samsung 43-inch television"
+                />
+                <TextInput
+                  label="Supplier to be paid"
+                  value={supplierName}
+                  onChange={(e) => setSupplierName(e.target.value)}
+                  error={errors.supplierName}
+                  placeholder="Shop or vendor name"
+                />
+              </>
+            ) : (
+              <TextArea
+                label="What is the loan for?"
+                containerClassName="sm:col-span-2"
+                rows={2}
+                value={purpose}
+                onChange={(e) => setPurpose(e.target.value)}
+                error={errors.purpose}
+              />
+            )}
           </div>
         </Panel>
 
@@ -427,7 +472,7 @@ function ApplicationForm({ customer, topUp }: { customer: Customer; topUp: Loan 
                 {tenorLabel(Number(count), product!.repaymentFrequency)} from the day it is paid out
               </p>
               <dl className="border-rule mt-4 grid grid-cols-[1fr_auto] gap-y-1.5 border-t pt-3 text-sm">
-                <dt className="text-ink-2">Amount borrowed</dt>
+                <dt className="text-ink-2">{bnpl ? 'Item price' : 'Amount borrowed'}</dt>
                 <dd className="text-right">
                   <Money value={principal!} />
                 </dd>
@@ -440,7 +485,7 @@ function ApplicationForm({ customer, topUp }: { customer: Customer; topUp: Loan 
                   <Money value={quote.totalRepayable} />
                 </dd>
                 <dt className="text-ink-2 mt-2">
-                  Processing fee ({product?.processingFeePercent}%)
+                  Processing fee ({describeFee(product!.processingFee, (k) => formatNaira(k, { trimZeroKobo: true }))})
                 </dt>
                 <dd className="mt-2 text-right">
                   <Money value={quote.fee} />
@@ -453,7 +498,9 @@ function ApplicationForm({ customer, topUp }: { customer: Customer; topUp: Loan 
                     </dd>
                   </>
                 )}
-                <dt className="font-medium">Customer receives</dt>
+                <dt className="font-medium">
+                  {bnpl ? 'Company pays the supplier' : 'Customer receives'}
+                </dt>
                 <dd className={cn('text-right font-semibold', quote.payout <= 0 && 'text-brick')}>
                   <Money value={quote.payout} />
                 </dd>

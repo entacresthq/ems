@@ -2,7 +2,14 @@ import { delay, http, HttpResponse } from 'msw'
 import { addDays, buildSchedule, processingFee } from '@/lib/loans'
 import { toLagosIso, todayIso } from '@/lib/dates'
 import { formatNaira, kobo, parseDecimal, toDecimal, ZERO, type Kobo } from '@/lib/money'
-import type { Collateral, LoanApplicationInput, LoanProduct, PaymentMethod } from '@/types'
+import type {
+  Collateral,
+  FeeRule,
+  LoanApplicationInput,
+  LoanProduct,
+  PaymentMethod,
+  PenaltyRule,
+} from '@/types'
 import { commit, db } from '../db'
 import {
   audit,
@@ -207,8 +214,15 @@ export const loanHandlers = [
         'This product needs at least one guarantor. Add one on the customer’s page first.',
       ]
     }
-    const purpose = typeof body.purpose === 'string' ? body.purpose.trim() : ''
-    if (purpose.length < 5) errors.purpose = ['Say what the money is for.']
+    const isBnpl = product?.kind === 'bnpl'
+    const itemDescription = typeof body.itemDescription === 'string' ? body.itemDescription.trim() : ''
+    const supplierName = typeof body.supplierName === 'string' ? body.supplierName.trim() : ''
+    let purpose = typeof body.purpose === 'string' ? body.purpose.trim() : ''
+    if (isBnpl) {
+      if (itemDescription.length < 3) errors.itemDescription = ['Say what the company is buying.']
+      if (supplierName.length < 2) errors.supplierName = ['Enter who the company will pay.']
+      purpose = itemDescription
+    } else if (purpose.length < 5) errors.purpose = ['Say what the money is for.']
 
     const collateral: Collateral[] = []
     ;(body.collateral ?? []).forEach((c, i) => {
@@ -223,7 +237,9 @@ export const loanHandlers = [
     })
 
     const topUpOf = body.topUpOfId ? db().loans.find((l) => l.id === body.topUpOfId) : undefined
-    if (
+    if (body.topUpOfId && (isBnpl || topUpOf?.kind === 'bnpl')) {
+      errors.topUpOfId = ['Top-ups are only available for cash loans.']
+    } else if (
       body.topUpOfId &&
       (!topUpOf || topUpOf.customerId !== customer.id || topUpOf.status !== 'active')
     ) {
@@ -244,7 +260,7 @@ export const loanHandlers = [
     }
     if (topUpOf && principal && product) {
       const settle = current(topUpOf).outstanding
-      const fee = processingFee(principal, product.processingFeePercent)
+      const fee = processingFee(principal, product.processingFee)
       if (principal - fee - settle <= 0) {
         errors.principal = [
           `The old loan still has ${formatNaira(settle)} to pay. The top-up must be larger than that plus the fee.`,
@@ -257,7 +273,8 @@ export const loanHandlers = [
     const quote = buildSchedule(
       {
         principal,
-        monthlyRatePercent: product.monthlyRatePercent,
+        ratePercent: product.ratePercent,
+        interestBasis: product.interestBasis,
         interestMethod: product.interestMethod,
         frequency: product.repaymentFrequency,
         installmentCount: count,
@@ -288,9 +305,13 @@ export const loanHandlers = [
       frequency: product.repaymentFrequency,
       installmentAmount: quote.installment,
       installmentCount: count,
+      kind: product.kind,
       interestMethod: product.interestMethod,
-      monthlyRatePercent: product.monthlyRatePercent,
-      processingFee: processingFee(principal, product.processingFeePercent),
+      interestBasis: product.interestBasis,
+      ratePercent: product.ratePercent,
+      processingFee: processingFee(principal, product.processingFee),
+      itemDescription: isBnpl ? itemDescription : null,
+      supplierName: isBnpl ? supplierName : null,
       penaltiesCharged: ZERO,
       status: 'pending_approval',
       purpose,
@@ -311,16 +332,23 @@ export const loanHandlers = [
       schedule: quote.rows,
     }
     db().loans.unshift(loan)
-    requestApproval(staff, {
-      type: 'loan_application',
-      subject: `${topUpOf ? 'Top-up' : 'Loan'} of ${formatNaira(principal, { trimZeroKobo: true })} for ${loan.customerName} (${product.name})`,
-      amount: principal,
-      branchId: loan.branchId,
-      customerId: customer.id,
-      customerName: loan.customerName,
-      loanId: loan.id,
-      reason: purpose,
-    })
+    try {
+      // The MD and general managers approve loans for everyone else, so theirs are approved straight away.
+      requestApproval(staff, {
+        type: 'loan_application',
+        subject: `${topUpOf ? 'Top-up' : isBnpl ? 'Buy now pay later purchase' : 'Loan'} of ${formatNaira(principal, { trimZeroKobo: true })} for ${loan.customerName} (${product.name})`,
+        amount: principal,
+        branchId: loan.branchId,
+        customerId: customer.id,
+        customerName: loan.customerName,
+        loanId: loan.id,
+        reason: purpose,
+      })
+    } catch (e) {
+      db().loans.splice(db().loans.indexOf(loan), 1)
+      if (e instanceof DomainError) return badRequest(e.message)
+      throw e
+    }
     audit(
       staff,
       'loan.apply',
@@ -381,19 +409,24 @@ export const loanHandlers = [
     if (reason.length < 10)
       errors.reason = ['Explain why the customer needs more time (at least 10 characters).']
     if (Object.keys(errors).length) return validationError(errors)
-    const approval = requestApproval(staff, {
-      type: 'loan_extension',
-      subject: `Extend ${loan.loanNumber} for ${loan.customerName} by ${extra} ${loan.frequency} installments`,
-      amount: loan.outstanding,
-      branchId: loan.branchId,
-      customerId: loan.customerId,
-      customerName: loan.customerName,
-      accountId: loan.accountId,
-      loanId: loan.id,
-      reason,
-      payload: { extraInstallments: extra },
-    })
-    return HttpResponse.json(out.approval(approval), { status: 201 })
+    try {
+      const approval = requestApproval(staff, {
+        type: 'loan_extension',
+        subject: `Extend ${loan.loanNumber} for ${loan.customerName} by ${extra} ${loan.frequency} installments`,
+        amount: loan.outstanding,
+        branchId: loan.branchId,
+        customerId: loan.customerId,
+        customerName: loan.customerName,
+        accountId: loan.accountId,
+        loanId: loan.id,
+        reason,
+        payload: { extraInstallments: extra },
+      })
+      return HttpResponse.json(out.approval(approval), { status: 201 })
+    } catch (e) {
+      if (e instanceof DomainError) return badRequest(e.message)
+      throw e
+    }
   }),
 
   http.post(api('/loans/:id/charge-penalty/'), async ({ request, params }) => {
@@ -450,6 +483,14 @@ function validateProduct(
     if (!(n >= 0 && n <= max)) errors[field] = [`Enter a percentage between 0 and ${max}.`]
     return Number.isFinite(n) ? n.toFixed(2) : '0.00'
   }
+  const amount = (v: unknown, field: string): Kobo => {
+    const k = money(v)
+    if (k === null || k <= 0) {
+      errors[field] = ['Enter an amount greater than zero.']
+      return kobo(0)
+    }
+    return k
+  }
 
   const name = String(pick('name') ?? '').trim()
   if (!name) errors.name = ['Enter a product name.']
@@ -460,14 +501,31 @@ function validateProduct(
   ) {
     errors.name = ['Another product already has this name.']
   }
-  const interestMethod = pick('interestMethod')
+  const kind = pick('kind')
+  if (kind !== 'cash' && kind !== 'bnpl') errors.kind = ['Choose cash loan or buy now pay later.']
+  const interestBasis = pick('interestBasis')
+  if (interestBasis !== 'monthly' && interestBasis !== 'overall')
+    errors.interestBasis = ['Choose whether the rate is monthly or overall.']
+  let interestMethod = pick('interestMethod')
+  // An overall rate is one charge on the amount, so it is always flat.
+  if (interestBasis === 'overall') interestMethod = 'flat'
   if (interestMethod !== 'flat' && interestMethod !== 'reducing_balance')
     errors.interestMethod = ['Choose flat or reducing balance.']
   const frequency = pick('repaymentFrequency')
   if (frequency !== 'daily' && frequency !== 'weekly' && frequency !== 'monthly')
     errors.repaymentFrequency = ['Choose how often customers repay.']
-  const rate = percent(pick('monthlyRatePercent'), 'monthlyRatePercent', 30)
-  const fee = percent(pick('processingFeePercent'), 'processingFeePercent', 20)
+  const rate = percent(pick('ratePercent'), 'ratePercent', interestBasis === 'overall' ? 100 : 30)
+  const rawFee = (pick('processingFee') ?? { type: 'none' }) as Record<string, unknown>
+  let processingFee: FeeRule = { type: 'none' }
+  if (rawFee.type === 'percentage')
+    processingFee = {
+      type: 'percentage',
+      percent: percent(rawFee.percent, 'processingFee.percent', 20),
+    }
+  else if (rawFee.type === 'flat')
+    processingFee = { type: 'flat', amount: amount(rawFee.amount, 'processingFee.amount') }
+  else if (rawFee.type !== 'none')
+    errors.processingFee = ['Choose percentage, flat fee or none.']
   const minTenor = Number(pick('minTenor'))
   const maxTenor = Number(pick('maxTenor'))
   if (!Number.isInteger(minTenor) || minTenor < 1)
@@ -483,10 +541,23 @@ function validateProduct(
   const graceDays = Number(rawPenalty.graceDays)
   if (!Number.isInteger(graceDays) || graceDays < 0)
     errors['penalty.graceDays'] = ['Enter 0 or more days.']
-  const penalty = {
-    percentPerDay: percent(rawPenalty.percentPerDay, 'penalty.percentPerDay', 5),
-    graceDays,
-    capPercent: percent(rawPenalty.capPercent, 'penalty.capPercent', 100),
+  const capPercent = percent(rawPenalty.capPercent, 'penalty.capPercent', 100)
+  let penalty: PenaltyRule
+  if (rawPenalty.type === 'flat') {
+    penalty = {
+      type: 'flat',
+      amountPerDay: amount(rawPenalty.amountPerDay, 'penalty.amountPerDay'),
+      graceDays,
+      capPercent,
+    }
+  } else {
+    if (rawPenalty.type !== 'percentage') errors['penalty.type'] = ['Choose percentage or flat fee.']
+    penalty = {
+      type: 'percentage',
+      percentPerDay: percent(rawPenalty.percentPerDay, 'penalty.percentPerDay', 5),
+      graceDays,
+      capPercent,
+    }
   }
   const status = pick('status')
   if (status !== 'active' && status !== 'retired') errors.status = ['Choose active or retired.']
@@ -494,14 +565,16 @@ function validateProduct(
   return {
     product: {
       name,
+      kind: kind as LoanProduct['kind'],
       interestMethod: interestMethod as LoanProduct['interestMethod'],
-      monthlyRatePercent: rate,
+      interestBasis: interestBasis as LoanProduct['interestBasis'],
+      ratePercent: rate,
       repaymentFrequency: frequency as LoanProduct['repaymentFrequency'],
       minTenor,
       maxTenor,
       minAmount: minAmount!,
       maxAmount: maxAmount!,
-      processingFeePercent: fee,
+      processingFee,
       penalty,
       requiresGuarantor: Boolean(pick('requiresGuarantor')),
       status: status as LoanProduct['status'],

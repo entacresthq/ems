@@ -6,7 +6,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { authApi } from '@/api/auth'
 import { applyServerErrors } from '@/api/forms'
 import { isApiError } from '@/api/client'
-import { OtpInput, PasswordInput, TextInput } from '@/components/form/inputs'
+import { Checkbox, OtpInput, PasswordInput, TextInput } from '@/components/form/inputs'
 import { Alert } from '@/components/ui/Alert'
 import { Button } from '@/components/ui/Button'
 import { config } from '@/config'
@@ -26,6 +26,26 @@ const credentialsSchema = z.object({
   password: z.string().min(1, 'Enter your password.'),
 })
 type Credentials = z.infer<typeof credentialsSchema>
+
+/** Only the email is kept, never the password, and only if the person ticks the box. */
+const REMEMBERED_EMAIL_KEY = 'ems.rememberedEmail'
+
+function readRememberedEmail(): string {
+  try {
+    return window.localStorage.getItem(REMEMBERED_EMAIL_KEY) ?? ''
+  } catch {
+    return '' // storage blocked (private mode, policy): just start empty
+  }
+}
+
+function writeRememberedEmail(email: string | null) {
+  try {
+    if (email) window.localStorage.setItem(REMEMBERED_EMAIL_KEY, email)
+    else window.localStorage.removeItem(REMEMBERED_EMAIL_KEY)
+  } catch {
+    // Not being able to remember is harmless.
+  }
+}
 
 const otpSchema = z.object({
   code: z
@@ -64,18 +84,32 @@ function CredentialsStep({
   const field = variant === 'field'
   const isDemo = useIsDemo()
   const [formError, setFormError] = useState<string | null>(null)
+  const [remembered] = useState(readRememberedEmail)
+  const [remember, setRemember] = useState(remembered !== '')
   const {
     register,
     handleSubmit,
     setError,
     setValue,
+    setFocus,
     formState: { errors, isSubmitting },
-  } = useForm<Credentials>({ resolver: zodResolver(credentialsSchema) })
+  } = useForm<Credentials>({
+    resolver: zodResolver(credentialsSchema),
+    defaultValues: { email: remembered, password: '' },
+  })
+
+  // With the email already filled in, the next thing to type is the password.
+  useEffect(() => {
+    if (remembered) setFocus('password')
+  }, [remembered, setFocus])
 
   const onSubmit = handleSubmit(async (values) => {
     setFormError(null)
     try {
-      onChallenge(await authApi.login(values))
+      const challenge = await authApi.login(values)
+      // Only once the password has been accepted, so a typo isn't kept.
+      writeRememberedEmail(remember ? values.email : null)
+      onChallenge(challenge)
     } catch (error) {
       setFormError(applyServerErrors(error, setError, ['email', 'password']))
     }
@@ -112,6 +146,11 @@ function CredentialsStep({
           fieldSize={field ? 'field' : 'md'}
           error={errors.password?.message}
           {...register('password')}
+        />
+        <Checkbox
+          label="Remember my email address on this computer"
+          checked={remember}
+          onChange={(e) => setRemember(e.target.checked)}
         />
         <Button
           type="submit"

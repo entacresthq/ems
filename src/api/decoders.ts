@@ -25,7 +25,10 @@ const money = (v: string) => parseDecimal(v)
 const moneyOrNull = (v: string | null): Kobo | null => (v === null ? null : parseDecimal(v))
 
 export const decode = {
-  account: (w: Wire<Account>) => decodeMoney<Account>(w, ['balance']),
+  account: (w: WireAccount): Account => ({
+    ...decodeMoney<Account>(w as unknown as Wire<Account>, ['balance']),
+    target: w.target ? { ...w.target, targetAmount: money(w.target.targetAmount) } : null,
+  }),
   transaction: (w: Wire<Transaction>) => decodeMoney<Transaction>(w, ['amount', 'balanceAfter']),
   loan: (w: WireLoan): Loan =>
     decodeMoney<Loan>(
@@ -53,7 +56,19 @@ export const decode = {
       decodeMoney<LoanScheduleRow>(r, ['principal', 'interest', 'amount', 'paid']),
     ),
   }),
-  loanProduct: (w: Wire<LoanProduct>) => decodeMoney<LoanProduct>(w, ['minAmount', 'maxAmount']),
+  loanProduct: (w: WireLoanProduct): LoanProduct => ({
+    ...w,
+    minAmount: money(w.minAmount),
+    maxAmount: money(w.maxAmount),
+    processingFee:
+      w.processingFee.type === 'flat'
+        ? { type: 'flat', amount: money(w.processingFee.amount) }
+        : w.processingFee,
+    penalty:
+      w.penalty.type === 'flat'
+        ? { ...w.penalty, type: 'flat', amountPerDay: money(w.penalty.amountPerDay) }
+        : w.penalty,
+  }),
   settings: (w: Wire<BusinessSettings>): BusinessSettings => {
     const s = decodeMoney<BusinessSettings>(w, ['largeWithdrawalThreshold'])
     // Role names are data, not field names: undo the camelCase applied to every key.
@@ -103,6 +118,26 @@ export type WireLoan = Omit<Wire<Loan>, 'collateral'> & {
 }
 export type WireLoanDetail = WireLoan & { schedule: Wire<LoanScheduleRow>[] }
 
+export type WireAccount = Omit<Wire<Account>, 'target'> & {
+  target: (Omit<NonNullable<Account['target']>, 'targetAmount'> & { targetAmount: string }) | null
+}
+
+export type WireLoanProduct = Omit<
+  LoanProduct,
+  'minAmount' | 'maxAmount' | 'processingFee' | 'penalty'
+> & {
+  minAmount: string
+  maxAmount: string
+  processingFee:
+    | { type: 'none' }
+    | { type: 'percentage'; percent: string }
+    | { type: 'flat'; amount: string }
+  penalty: { graceDays: number; capPercent: string } & (
+    | { type: 'percentage'; percentPerDay: string }
+    | { type: 'flat'; amountPerDay: string }
+  )
+}
+
 export type WireThriftPlan = Omit<ThriftPlan, 'contributionAmount' | 'commission'> & {
   contributionAmount: string
   commission:
@@ -114,7 +149,7 @@ export type WireToday = Omit<FieldToday, 'items'> & {
   items: (Omit<FieldToday['items'][number], 'dues'> & { dues: Wire<Due>[] })[]
 }
 export type WirePortfolio = Omit<Portfolio, 'accounts' | 'loans'> & {
-  accounts: Wire<Account>[]
+  accounts: WireAccount[]
   loans: WireLoan[]
 }
 export type WireRemittance = Omit<

@@ -22,6 +22,7 @@ import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { cn } from '@/lib/cn'
 import { formatDate, formatDateTime } from '@/lib/dates'
 import { formatNaira, kobo } from '@/lib/money'
+import { describeInterest } from '@/lib/loans'
 import { hasPermission } from '@/lib/permissions'
 import { formatPhone } from '@/lib/phone'
 import {
@@ -74,8 +75,8 @@ function LoanView({ loan: l }: { loan: LoanDetail }) {
       <header className="border-rule mb-6 flex flex-col gap-4 border-b pb-5 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-ink-2 text-sm">
-            {l.productName} · {tenorLabel(l.installmentCount, l.frequency)} · {l.monthlyRatePercent}
-            % a month {l.interestMethod === 'flat' ? 'flat' : 'reducing balance'}
+            {l.productName} · {l.kind === 'bnpl' ? 'Buy now pay later · ' : ''}
+            {tenorLabel(l.installmentCount, l.frequency)} · {describeInterest(l)}
           </p>
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <h1 className="font-mono text-xl font-semibold">{l.loanNumber}</h1>
@@ -107,7 +108,7 @@ function LoanView({ loan: l }: { loan: LoanDetail }) {
         <div className="flex flex-wrap gap-2">
           {l.status === 'approved' && can('loans.disburse') && (
             <Button variant="primary" onClick={() => setDialog('disburse')}>
-              Pay out loan
+              {l.kind === 'bnpl' ? 'Pay supplier' : 'Pay out loan'}
             </Button>
           )}
           {active && l.penaltyAccrued > 0 && can('loans.approve') && (
@@ -118,7 +119,7 @@ function LoanView({ loan: l }: { loan: LoanDetail }) {
           {active && can('loans.apply') && (
             <Button onClick={() => setDialog('extend')}>Request extension</Button>
           )}
-          {active && can('loans.apply') && (
+          {active && l.kind === 'cash' && can('loans.apply') && (
             <ButtonLink
               to={`/loans/new?customer=${l.customerId}&topUp=${l.id}`}
               variant="secondary"
@@ -204,7 +205,16 @@ function LoanView({ loan: l }: { loan: LoanDetail }) {
             <DescriptionList
               columns={1}
               items={[
-                { label: 'Amount borrowed', value: <Money value={l.principal} /> },
+                ...(l.kind === 'bnpl'
+                  ? [
+                      { label: 'Item', value: l.itemDescription },
+                      { label: 'Supplier', value: l.supplierName },
+                    ]
+                  : []),
+                {
+                  label: l.kind === 'bnpl' ? 'Item price' : 'Amount borrowed',
+                  value: <Money value={l.principal} />,
+                },
                 { label: 'Interest', value: <Money value={l.interest} /> },
                 { label: 'Total to repay', value: <Money value={l.totalRepayable} /> },
                 {
@@ -213,7 +223,7 @@ function LoanView({ loan: l }: { loan: LoanDetail }) {
                 },
                 { label: 'Processing fee', value: <Money value={l.processingFee} /> },
                 { label: 'Penalties charged', value: <Money value={l.penaltiesCharged} /> },
-                { label: 'Purpose', value: l.purpose },
+                ...(l.kind === 'cash' ? [{ label: 'Purpose', value: l.purpose }] : []),
               ]}
             />
           </Panel>
@@ -242,16 +252,32 @@ function LoanView({ loan: l }: { loan: LoanDetail }) {
               <p className="text-ink-2 text-sm">None.</p>
             ) : (
               <ul className="divide-rule flex flex-col divide-y">
-                {l.guarantors.map((g, i) => (
-                  <li key={i} className="py-2 text-sm first:pt-0 last:pb-0">
-                    <p className="font-medium">{g.fullName}</p>
-                    <p className="text-ink-2">
-                      <a href={`tel:${g.phone}`} className="underline">
-                        {formatPhone(g.phone)}
-                      </a>
-                      {g.relationship && ` · ${g.relationship}`}
-                    </p>
-                    <p className="text-ink-2">{g.address}</p>
+                {l.guarantors.map((g) => (
+                  <li key={g.id} className="flex gap-3 py-2 text-sm first:pt-0 last:pb-0">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium">{g.fullName}</p>
+                      <p className="text-ink-2">
+                        <a href={`tel:${g.phone}`} className="underline">
+                          {formatPhone(g.phone)}
+                        </a>
+                        {g.relationship && ` · ${g.relationship}`}
+                      </p>
+                      <p className="text-ink-2">{g.address}</p>
+                    </div>
+                    {g.photoUrl && (
+                      <img
+                        src={g.photoUrl}
+                        alt={`Photo of guarantor ${g.fullName}`}
+                        className="border-rule h-16 w-14 shrink-0 rounded border object-cover"
+                      />
+                    )}
+                    {g.signatureUrl && (
+                      <img
+                        src={g.signatureUrl}
+                        alt={`Signature of guarantor ${g.fullName}`}
+                        className="border-rule h-16 w-28 shrink-0 rounded border bg-white object-contain"
+                      />
+                    )}
                   </li>
                 ))}
               </ul>
@@ -411,6 +437,7 @@ function DisburseDialog({ loan, onClose }: { loan: LoanDetail; onClose: () => vo
   const [busy, setBusy] = useState(false)
   const toast = useToast()
   const refresh = useRefreshLoan()
+  const bnpl = loan.kind === 'bnpl'
 
   const submit = async () => {
     setBusy(true)
@@ -418,10 +445,17 @@ function DisburseDialog({ loan, onClose }: { loan: LoanDetail; onClose: () => vo
     try {
       const { payout } = await loansApi.disburse(loan.id, method)
       await refresh()
-      toast({
-        title: 'Loan paid out',
-        description: `Give ${loan.customerName} ${formatNaira(payout)} by ${method}. The first installment is now scheduled.`,
-      })
+      toast(
+        bnpl
+          ? {
+              title: 'Supplier paid',
+              description: `Pay ${loan.supplierName} ${formatNaira(payout)} by ${method} for ${loan.itemDescription}${loan.processingFee > 0 ? `, and collect the ${formatNaira(loan.processingFee)} processing fee from ${loan.customerName}` : ''}. The first installment is now scheduled.`,
+            }
+          : {
+              title: 'Loan paid out',
+              description: `Give ${loan.customerName} ${formatNaira(payout)} by ${method}. The first installment is now scheduled.`,
+            },
+      )
       onClose()
     } catch (e) {
       setError(isApiError(e) ? e.message : 'The loan was not paid out. Try again.')
@@ -436,15 +470,19 @@ function DisburseDialog({ loan, onClose }: { loan: LoanDetail; onClose: () => vo
       onClose={onClose}
       dismissible={!busy}
       size="sm"
-      title={`Pay out ${loan.loanNumber}`}
-      description={`To ${loan.customerName}. Check their ID before paying.`}
+      title={bnpl ? `Pay supplier for ${loan.loanNumber}` : `Pay out ${loan.loanNumber}`}
+      description={
+        bnpl
+          ? `Buying ${loan.itemDescription} for ${loan.customerName} from ${loan.supplierName}.`
+          : `To ${loan.customerName}. Check their ID before paying.`
+      }
       footer={
         <>
           <Button onClick={onClose} disabled={busy}>
             Cancel
           </Button>
           <Button variant="primary" onClick={submit} loading={busy}>
-            Pay out loan
+            {bnpl ? 'Pay supplier' : 'Pay out loan'}
           </Button>
         </>
       }
@@ -452,21 +490,34 @@ function DisburseDialog({ loan, onClose }: { loan: LoanDetail; onClose: () => vo
       <div className="flex flex-col gap-4">
         {error && <Alert tone="danger">{error}</Alert>}
         <dl className="grid grid-cols-[1fr_auto] gap-y-1.5 text-sm">
-          <dt className="text-ink-2">Amount borrowed</dt>
+          <dt className="text-ink-2">{bnpl ? 'Item price' : 'Amount borrowed'}</dt>
           <dd className="text-right">
             <Money value={loan.principal} />
           </dd>
           <dt className="text-ink-2">Processing fee</dt>
           <dd className="text-right">
-            − <Money value={loan.processingFee} />
+            {bnpl ? '' : '− '}
+            <Money value={loan.processingFee} />
           </dd>
+          {bnpl && (
+            <>
+              <dt className="font-semibold">Company pays {loan.supplierName}</dt>
+              <dd className="text-right font-semibold">
+                <Money value={loan.principal} />
+              </dd>
+              <dt className="text-ink-2">Collect from customer at handover</dt>
+              <dd className="text-right">
+                <Money value={loan.processingFee} />
+              </dd>
+            </>
+          )}
           {loan.topUpOfNumber && (
             <>
               <dt className="text-ink-2">Settles {loan.topUpOfNumber}</dt>
               <dd className="text-ink-2 text-right">worked out at payout</dd>
             </>
           )}
-          {!loan.topUpOfId && (
+          {!bnpl && !loan.topUpOfId && (
             <>
               <dt className="font-semibold">Customer receives</dt>
               <dd className="text-right font-semibold">
@@ -476,7 +527,7 @@ function DisburseDialog({ loan, onClose }: { loan: LoanDetail; onClose: () => vo
           )}
         </dl>
         <SegmentedControl
-          label="Pay out by"
+          label={bnpl ? 'Pay supplier by' : 'Pay out by'}
           value={method}
           onChange={setMethod}
           options={[
@@ -505,12 +556,13 @@ function ExtendDialog({ loan, onClose }: { loan: LoanDetail; onClose: () => void
     setBusy(true)
     setErrors({})
     try {
-      await loansApi.requestExtension(loan.id, Number(extra), reason.trim())
+      const approval = await loansApi.requestExtension(loan.id, Number(extra), reason.trim())
       await refresh()
-      toast({
-        title: 'Extension requested',
-        description: 'A manager must approve it in Approvals.',
-      })
+      toast(
+        approval.status === 'approved'
+          ? { title: 'Loan extended', description: `${extra} more installments were added.` }
+          : { title: 'Extension requested', description: 'A manager must approve it in Approvals.' },
+      )
       onClose()
     } catch (e) {
       if (isApiError(e))

@@ -94,7 +94,7 @@ export const fieldHandlers = [
         'account_not_active',
       )
     }
-    if (account.type === 'savings')
+    if (account.type === 'savings' || account.type === 'target')
       return validationError({
         accountId: ['Savings deposits are taken at the counter, not in the field.'],
       })

@@ -448,7 +448,7 @@ const builders: Record<string, Builder> = {
   'account-balances': (p) => {
     const accounts = db().accounts.filter((a) => !p.branchId || a.branchId === p.branchId)
     const rows: Row[] = []
-    for (const type of ['savings', 'thrift', 'loan'] as const) {
+    for (const type of ['savings', 'target', 'thrift', 'loan'] as const) {
       for (const status of ['active', 'dormant', 'frozen', 'closed'] as const) {
         const mine = accounts.filter((a) => a.type === type && a.status === status)
         if (mine.length === 0) continue
@@ -534,7 +534,7 @@ const builders: Record<string, Builder> = {
   },
 
   statement: (p) => {
-    if (!p.accountNumber) throw new DomainError('Enter the 10-digit account number.', 'account')
+    if (!p.accountNumber) throw new DomainError('Enter the account number.', 'account')
     const account = db().accounts.find(
       (a) => a.accountNumber === p.accountNumber && (!p.branchId || a.branchId === p.branchId),
     )

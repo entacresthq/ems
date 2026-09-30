@@ -137,16 +137,20 @@ export function TransactionDialog({
             hint: 'The approving manager reads this. Be specific.',
           }}
           onConfirm={async (reason) => {
-            await transactionsApi.requestReversal(t.id, reason)
+            const approval = await transactionsApi.requestReversal(t.id, reason)
             await Promise.all(
               ['transactions', 'approvals'].map((k) =>
                 queryClient.invalidateQueries({ queryKey: [k] }),
               ),
             )
-            toast({
-              title: 'Reversal requested',
-              description: `${t.reference} is on hold until a manager approves or rejects it.`,
-            })
+            toast(
+              approval.status === 'approved'
+                ? { title: 'Transaction reversed', description: `${t.reference} has been reversed.` }
+                : {
+                    title: 'Reversal requested',
+                    description: `${t.reference} is on hold until a manager approves or rejects it.`,
+                  },
+            )
             onClose()
           }}
         >

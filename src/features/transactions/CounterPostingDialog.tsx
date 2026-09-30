@@ -13,9 +13,12 @@ import { Money } from '@/components/ui/display'
 import { SegmentedControl } from '@/components/ui/Tabs'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { useToast } from '@/components/ui/Toast'
+import { useCurrentUser } from '@/features/auth/AuthProvider'
+import { accountNumberLength, looksLikeAccountNumber } from '@/lib/accountNumber'
 import { formatNaira, kobo, type Kobo } from '@/lib/money'
 import {
   ACCOUNT_TYPE_LABELS,
+  approvesOwnRequests,
   TRANSACTION_TYPE_LABELS,
   type Account,
   type CounterPostingRequest,
@@ -24,6 +27,7 @@ import {
 
 const TYPES_FOR: Record<Account['type'], CounterPostingRequest['type'][]> = {
   savings: ['deposit', 'withdrawal'],
+  target: ['deposit', 'withdrawal'],
   thrift: ['thrift_contribution'],
   loan: ['loan_repayment'],
 }
@@ -60,13 +64,19 @@ function PostingForm({ onClose, preset }: { onClose: () => void; preset?: Accoun
     staleTime: 10 * 60_000,
   })
   const toast = useToast()
+  const user = useCurrentUser()
 
   const found = useQuery({
     queryKey: accountKeys.list({ search: lookup, pageSize: 5 }),
     queryFn: () => accountsApi.list({ search: lookup, pageSize: 5 }),
-    enabled: !preset && /^\d{10}$/.test(lookup),
+    enabled: !preset && looksLikeAccountNumber(lookup),
   })
   const account = preset ?? found.data?.results.find((a) => a.accountNumber === lookup)
+  // Accounts opened before a format change keep their old length, so allow for both.
+  const shortestLength = Math.min(
+    10,
+    settings.data ? accountNumberLength(settings.data.accountNumberFormat) : 10,
+  )
 
   // The chosen type only applies if this account can take it; otherwise use the account's default.
   const type = account
@@ -77,11 +87,13 @@ function PostingForm({ onClose, preset }: { onClose: () => void; preset?: Accoun
 
   // The limit is set in Settings; the server checks it again.
   const limit = settings.data?.largeWithdrawalThreshold ?? kobo(500_000 * 100)
-  const needsApproval = type === 'withdrawal' && amount !== null && amount >= limit
+  // The MD and general managers approve these for everyone else, so theirs post straight away.
+  const needsApproval =
+    type === 'withdrawal' && amount !== null && amount >= limit && !approvesOwnRequests(user)
 
   const submit = async () => {
     const next: typeof errors = {}
-    if (!account) next.account = 'Enter a 10-digit account number and check the customer name.'
+    if (!account) next.account = 'Enter the account number and check the customer name.'
     if (!amount) next.amount = 'Enter an amount greater than ₦0.'
     setErrors(next)
     if (!account || !amount || !type) return
@@ -153,22 +165,23 @@ function PostingForm({ onClose, preset }: { onClose: () => void; preset?: Accoun
         {!preset && (
           <TextInput
             label="Account number"
-            inputMode="numeric"
-            maxLength={10}
+            autoCapitalize="characters"
+            maxLength={24}
             className="font-mono"
             value={number}
             error={errors.account}
             hint={
               found.isFetching
                 ? 'Looking up…'
-                : /^\d{10}$/.test(lookup) && !account && found.isSuccess
+                : // Only say "not found" once the number is as long as a real one.
+                  lookup.length >= shortestLength && !account && found.isSuccess
                   ? 'No account with this number in your branch.'
                   : undefined
             }
             onChange={(e) => {
-              const v = e.target.value.replace(/\D/g, '')
+              const v = e.target.value.replace(/[^A-Za-z0-9-]/g, '').toUpperCase()
               setNumber(v)
-              setLookup(v.length === 10 ? v : '')
+              setLookup(looksLikeAccountNumber(v) ? v : '')
             }}
           />
         )}

@@ -1,14 +1,29 @@
 import type { Kobo } from '@/lib/money'
 import type { GeoPoint, Id, IsoDate, IsoDateTime, ListParams } from './common'
 import type { Guarantor } from './customer'
-import type { InterestMethod, RepaymentFrequency } from './products'
+import type {
+  InterestBasis,
+  InterestMethod,
+  LoanKind,
+  RepaymentFrequency,
+} from './products'
 
-export type AccountType = 'savings' | 'thrift' | 'loan'
+export type AccountType = 'savings' | 'target' | 'thrift' | 'loan'
 export type AccountStatus = 'active' | 'dormant' | 'frozen' | 'closed'
+
+/** A savings goal: the customer is saving up for something. */
+export interface SavingsTarget {
+  /** What the customer is saving for, e.g. "School fees" or "New freezer". */
+  goalName: string
+  targetAmount: Kobo
+  targetDate: IsoDate
+  /** When on, money can't be withdrawn until the goal is reached or the target date has passed. */
+  lockUntilReached: boolean
+}
 
 export interface Account {
   id: Id
-  /** 10 digits: branch code (2) + product code (2) + serial (6). */
+  /** Built from the business's account number format (Settings). */
   accountNumber: string
   type: AccountType
   customerId: Id
@@ -24,6 +39,8 @@ export interface Account {
   openedAt: IsoDateTime
   closedAt: IsoDateTime | null
   lastTransactionAt: IsoDateTime | null
+  /** Only on target savings accounts. */
+  target: SavingsTarget | null
 }
 
 export interface AccountListParams extends ListParams {
@@ -67,9 +84,15 @@ export interface Loan {
   frequency: RepaymentFrequency
   installmentAmount: Kobo
   installmentCount: number
+  kind: LoanKind
   interestMethod: InterestMethod
-  monthlyRatePercent: string
+  interestBasis: InterestBasis
+  ratePercent: string
   processingFee: Kobo
+  /** BNPL only: what the company buys for the customer. */
+  itemDescription: string | null
+  /** BNPL only: who the company pays. */
+  supplierName: string | null
   /** Penalties already added to the balance. */
   penaltiesCharged: Kobo
   status: LoanStatus
@@ -124,6 +147,9 @@ export interface LoanApplicationInput {
   purpose: string
   collateral: Collateral[]
   topUpOfId: Id | null
+  /** BNPL only. */
+  itemDescription?: string
+  supplierName?: string
 }
 
 export type TransactionType =
@@ -195,6 +221,7 @@ export const TRANSACTION_TYPE_LABELS: Record<TransactionType, string> = {
 
 export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
   savings: 'Savings',
+  target: 'Target savings',
   thrift: 'Thrift',
   loan: 'Loan',
 }

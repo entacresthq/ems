@@ -89,6 +89,7 @@ function validateCustomer(body: Partial<CustomerInput>, existingId: string | nul
     }
   }
 
+  const existing = existingId ? db().customers.find((c) => c.id === existingId) : undefined
   const guarantors: Guarantor[] = []
   ;(body.guarantors ?? []).forEach((g, i) => {
     if (!text(g.fullName)) errors[`guarantors.${i}.fullName`] = ['Enter the guarantor’s name.']
@@ -98,7 +99,12 @@ function validateCustomer(body: Partial<CustomerInput>, existingId: string | nul
     const gBvn = optional(g.bvn)
     if (gBvn && !isValidBvn(gBvn))
       errors[`guarantors.${i}.bvn`] = ['BVN must be exactly 11 digits.']
+    // A guarantor who is already on file keeps their photo and signature.
+    const known = existing?.guarantors.find((x) => x.id === g.id)
     guarantors.push({
+      id: known?.id ?? newId(),
+      photoUrl: known?.photoUrl ?? null,
+      signatureUrl: known?.signatureUrl ?? null,
       fullName: text(g.fullName),
       phone: normalisePhone(text(g.phone)) ?? text(g.phone),
       address: text(g.address),
@@ -145,12 +151,8 @@ function assignment(staff: StaffRecord, body: Partial<CustomerInput>, errors: Er
   return { branchId, officer }
 }
 
-async function saveUpload(
-  request: Request,
-  staff: StaffRecord,
-  customer: Customer,
-  field: 'photoUrl' | 'signatureUrl',
-) {
+/** Read an uploaded image as a data URL, or say why it can't be used. */
+async function readImage(request: Request): Promise<string | Response> {
   const form = await request.formData().catch(() => null)
   const file = form?.get('file')
   if (!(file instanceof Blob)) return badRequest('Choose an image to upload.')
@@ -162,7 +164,18 @@ async function saveUpload(
   let binary = ''
   for (let i = 0; i < bytes.length; i += 0x8000)
     binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
-  customer[field] = `data:${file.type};base64,${btoa(binary)}`
+  return `data:${file.type};base64,${btoa(binary)}`
+}
+
+async function saveUpload(
+  request: Request,
+  staff: StaffRecord,
+  customer: Customer,
+  field: 'photoUrl' | 'signatureUrl',
+) {
+  const image = await readImage(request)
+  if (image instanceof Response) return image
+  customer[field] = image
   commit()
   audit(
     staff,
@@ -313,6 +326,28 @@ export const customerHandlers = [
     const customer = scopeRows(staff, db().customers).find((c) => c.id === params.id)
     if (!customer) return notFound()
     return saveUpload(request, staff, customer, 'signatureUrl')
+  }),
+
+  http.post(api('/customers/:id/guarantors/:guarantorId/:kind/'), async ({ request, params }) => {
+    const staff = authenticate(request)
+    if (staff instanceof Response) return staff
+    if (!can(staff, 'customers.edit') && !can(staff, 'customers.create')) return forbidden()
+    if (params.kind !== 'photo' && params.kind !== 'signature') return notFound()
+    const customer = scopeRows(staff, db().customers).find((c) => c.id === params.id)
+    const guarantor = customer?.guarantors.find((g) => g.id === params.guarantorId)
+    if (!customer || !guarantor) return notFound()
+    const image = await readImage(request)
+    if (image instanceof Response) return image
+    guarantor[params.kind === 'photo' ? 'photoUrl' : 'signatureUrl'] = image
+    commit()
+    audit(
+      staff,
+      `customer.guarantor.${params.kind}`,
+      'customer',
+      customer.id,
+      `Uploaded ${params.kind} of guarantor ${guarantor.fullName} for ${customer.firstName} ${customer.lastName}`,
+    )
+    return HttpResponse.json(out.customer(customer))
   }),
 
   http.post(api('/customers/:id/reassign/'), async ({ request, params }) => {

@@ -4,7 +4,7 @@ import { Plus, Trash2 } from 'lucide-react'
 import { adminKeys, settingsApi } from '@/api/admin'
 import { isApiError } from '@/api/client'
 import { MoneyInput } from '@/components/form/MoneyInput'
-import { Checkbox, TextArea, TextInput } from '@/components/form/inputs'
+import { Checkbox, Select, TextArea, TextInput } from '@/components/form/inputs'
 import { ErrorState, LoadingState } from '@/components/states'
 import { Alert } from '@/components/ui/Alert'
 import { Button } from '@/components/ui/Button'
@@ -13,6 +13,12 @@ import { PageHeader } from '@/components/ui/PageHeader'
 import { Tabs } from '@/components/ui/Tabs'
 import { useToast } from '@/components/ui/Toast'
 import { useCurrentUser } from '@/features/auth/AuthProvider'
+import {
+  accountNumberLength,
+  MAX_ACCOUNT_NUMBER_LENGTH,
+  previewAccountNumber,
+  validateAccountNumberFormat,
+} from '@/lib/accountNumber'
 import { formatDate, formatDateTime } from '@/lib/dates'
 import { formatNaira, type Kobo } from '@/lib/money'
 import { PERMISSION_GROUPS, PERMISSION_LABELS } from '@/lib/permissionCatalogue'
@@ -20,6 +26,7 @@ import { hasPermission } from '@/lib/permissions'
 import {
   ROLE_LABELS,
   ROLES,
+  type AccountNumberFormat,
   type BusinessSettings,
   type Holiday,
   type Permission,
@@ -27,7 +34,7 @@ import {
   type SettingsInput,
 } from '@/types'
 
-type Tab = 'business' | 'calendar' | 'limits' | 'sms' | 'roles'
+type Tab = 'business' | 'calendar' | 'limits' | 'accounts' | 'sms' | 'roles'
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
 export function SettingsPage() {
@@ -38,6 +45,7 @@ export function SettingsPage() {
     { value: 'business', label: 'Business details' },
     { value: 'calendar', label: 'Working days and holidays' },
     { value: 'limits', label: 'Limits' },
+    { value: 'accounts', label: 'Account numbers' },
     { value: 'sms', label: 'SMS messages' },
     ...(hasPermission(user, 'staff.permissions')
       ? [{ value: 'roles' as const, label: 'What each role allows' }]
@@ -65,6 +73,8 @@ export function SettingsPage() {
           <CalendarForm s={query.data} />
         ) : tab === 'limits' ? (
           <LimitsForm s={query.data} />
+        ) : tab === 'accounts' ? (
+          <AccountNumberForm s={query.data} />
         ) : tab === 'sms' ? (
           <SmsForm s={query.data} />
         ) : (
@@ -340,6 +350,96 @@ function LimitsForm({ s }: { s: BusinessSettings }) {
             'Limits saved',
           )
         }
+      />
+    </Panel>
+  )
+}
+
+function AccountNumberForm({ s }: { s: BusinessSettings }) {
+  const [format, setFormat] = useState<AccountNumberFormat>(s.accountNumberFormat)
+  const { save, errors, formError, busy } = useSave()
+  const set = <K extends keyof AccountNumberFormat>(key: K, value: AccountNumberFormat[K]) =>
+    setFormat((f) => ({ ...f, [key]: value }))
+  const clean = { ...format, prefix: format.prefix.toUpperCase() }
+  const problem = validateAccountNumberFormat(clean)
+  const saved = JSON.stringify(s.accountNumberFormat) === JSON.stringify(clean)
+  return (
+    <Panel title="Account numbers">
+      {(formError || errors.accountNumberFormat) && (
+        <Alert tone="danger" className="mb-4">
+          {errors.accountNumberFormat ?? formError}
+        </Alert>
+      )}
+      <p className="text-ink-2 mb-4 text-sm">
+        Choose how new account numbers are built. The parts always come in this order: prefix, branch
+        code, product code, year, then a running serial number. Accounts that already exist keep
+        their numbers.
+      </p>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <TextInput
+          label="Prefix"
+          optional
+          maxLength={4}
+          autoCapitalize="characters"
+          className="font-mono uppercase"
+          value={format.prefix}
+          onChange={(e) => set('prefix', e.target.value.replace(/[^A-Za-z0-9]/g, ''))}
+          hint="Up to 4 letters or digits, like EMS. Leave empty for none."
+        />
+        <TextInput
+          label="Serial number digits"
+          inputMode="numeric"
+          value={String(format.serialLength)}
+          onChange={(e) => set('serialLength', Number(e.target.value.replace(/\D/g, '')) || 0)}
+          hint="3 to 10. The serial goes up by one for every new account."
+        />
+        <Select
+          label="Between the parts"
+          value={format.separator}
+          onChange={(e) => set('separator', e.target.value as AccountNumberFormat['separator'])}
+        >
+          <option value="">Nothing (2110000001)</option>
+          <option value="-">A dash (21-10-000001)</option>
+        </Select>
+        <fieldset className="flex flex-col gap-2">
+          <legend className="text-ink mb-1 text-sm font-medium">Include</legend>
+          <Checkbox
+            label="Branch code (2 digits)"
+            checked={format.includeBranch}
+            onChange={(e) => set('includeBranch', e.target.checked)}
+          />
+          <Checkbox
+            label="Product code (2 digits)"
+            checked={format.includeProduct}
+            onChange={(e) => set('includeProduct', e.target.checked)}
+          />
+          <Checkbox
+            label="Year the account is opened (2 digits)"
+            checked={format.includeYear}
+            onChange={(e) => set('includeYear', e.target.checked)}
+          />
+        </fieldset>
+      </div>
+      <div className="bg-paper border-rule mt-4 rounded border px-4 py-3">
+        <p className="text-ink-2 text-sm">A new account would look like</p>
+        {problem ? (
+          <p className="text-brick mt-1 text-sm font-medium">{problem}</p>
+        ) : (
+          <>
+            <p className="mt-1 font-mono text-xl font-semibold">{previewAccountNumber(clean)}</p>
+            <p className="text-ink-2 mt-1 text-sm">
+              {accountNumberLength(clean)} characters (the most allowed is{' '}
+              {MAX_ACCOUNT_NUMBER_LENGTH}). Product codes: savings 10, target savings 11, and the
+              code of each thrift plan or loan product.
+            </p>
+          </>
+        )}
+      </div>
+      <SaveBar
+        busy={busy}
+        label="Save account number format"
+        dirty={!problem && !saved}
+        onSave={() => save({ accountNumberFormat: clean }, 'Account number format saved')}
       />
     </Panel>
   )

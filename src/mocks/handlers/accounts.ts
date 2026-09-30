@@ -1,6 +1,7 @@
 import { delay, http, HttpResponse } from 'msw'
+import { todayIso } from '@/lib/dates'
 import { formatNaira, naira } from '@/lib/money'
-import type { CommissionRule, ThriftPlan } from '@/types'
+import type { CommissionRule, SavingsTarget, ThriftPlan } from '@/types'
 import { commit, db } from '../db'
 import { audit, DomainError, newId, openAccount, requestApproval } from '../domain'
 import { out } from '../serializers'
@@ -80,9 +81,12 @@ export const accountHandlers = [
     const staff = authenticate(request)
     if (staff instanceof Response) return staff
     if (!can(staff, 'accounts.open')) return forbidden()
-    const body = await readBody<{ customerId: string; type: string; thriftPlanId: string | null }>(
-      request,
-    )
+    const body = await readBody<{
+      customerId: string
+      type: string
+      thriftPlanId: string | null
+      target?: { goalName?: unknown; targetAmount?: unknown; targetDate?: unknown; lockUntilReached?: unknown }
+    }>(request)
     const customer = db().customers.find((c) => c.id === body.customerId)
     if (!customer || !inScope(staff, customer))
       return validationError({ customerId: ['Choose a customer.'] })
@@ -91,11 +95,14 @@ export const accountHandlers = [
         `Accounts can only be opened for active customers. This customer is ${customer.status.replace('_', ' ')}.`,
       )
     }
-    if (body.type !== 'savings' && body.type !== 'thrift') {
+    if (body.type !== 'savings' && body.type !== 'target' && body.type !== 'thrift') {
       return validationError({
-        type: ['Choose savings or thrift. Loan accounts are opened when a loan is disbursed.'],
+        type: [
+          'Choose savings, target savings or thrift. Loan accounts are opened when a loan is disbursed.',
+        ],
       })
     }
+    let target: SavingsTarget | null = null
     if (body.type === 'savings') {
       const existing = db().accounts.find(
         (a) => a.customerId === customer.id && a.type === 'savings' && a.status !== 'closed',
@@ -104,19 +111,38 @@ export const accountHandlers = [
         return validationError({
           type: [`This customer already has savings account ${existing.accountNumber}.`],
         })
+    } else if (body.type === 'target') {
+      const errors: Record<string, string[]> = {}
+      const goalName = typeof body.target?.goalName === 'string' ? body.target.goalName.trim() : ''
+      if (goalName.length < 3) errors['target.goalName'] = ['Say what the customer is saving for.']
+      if (goalName.length > 60) errors['target.goalName'] = ['Keep the goal name under 60 characters.']
+      const targetAmount = parseMoney(body.target?.targetAmount)
+      if (!targetAmount) errors['target.targetAmount'] = ['Enter the amount the customer wants to save.']
+      const targetDate = typeof body.target?.targetDate === 'string' ? body.target.targetDate : ''
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate) || Number.isNaN(Date.parse(targetDate)))
+        errors['target.targetDate'] = ['Choose the date the customer wants to reach the goal.']
+      else if (targetDate <= todayIso())
+        errors['target.targetDate'] = ['The target date must be in the future.']
+      if (Object.keys(errors).length) return validationError(errors)
+      target = {
+        goalName,
+        targetAmount: targetAmount!,
+        targetDate,
+        lockUntilReached: body.target?.lockUntilReached === true,
+      }
     } else {
       const plan = db().thriftPlans.find((p) => p.id === body.thriftPlanId)
       if (!plan || plan.status !== 'active')
         return validationError({ thriftPlanId: ['Choose an active thrift plan.'] })
     }
     try {
-      const account = openAccount(customer.id, body.type, body.thriftPlanId ?? null)
+      const account = openAccount(customer.id, body.type, body.thriftPlanId ?? null, target)
       audit(
         staff,
         'account.open',
         'account',
         account.id,
-        `Opened ${account.type} account ${account.accountNumber} for ${account.customerName}`,
+        `Opened ${account.type} account ${account.accountNumber} for ${account.customerName}${target ? ` (goal: ${target.goalName}, ${formatNaira(target.targetAmount)} by ${target.targetDate})` : ''}`,
       )
       return HttpResponse.json(out.account(account), { status: 201 })
     } catch (e) {
@@ -209,16 +235,21 @@ export const accountHandlers = [
     ) {
       return conflict('A closure request for this account is already waiting for approval.')
     }
-    const approval = requestApproval(staff, {
-      type: 'account_closure',
-      subject: `Close ${account.type} account ${account.accountNumber} for ${account.customerName}`,
-      branchId: account.branchId,
-      customerId: account.customerId,
-      customerName: account.customerName,
-      accountId: account.id,
-      reason,
-    })
-    return HttpResponse.json(out.approval(approval), { status: 201 })
+    try {
+      const approval = requestApproval(staff, {
+        type: 'account_closure',
+        subject: `Close ${account.type} account ${account.accountNumber} for ${account.customerName}`,
+        branchId: account.branchId,
+        customerId: account.customerId,
+        customerName: account.customerName,
+        accountId: account.id,
+        reason,
+      })
+      return HttpResponse.json(out.approval(approval), { status: 201 })
+    } catch (e) {
+      if (e instanceof DomainError) return badRequest(e.message)
+      throw e
+    }
   }),
 
   // ── Thrift plans ───────────────────────────────────────────────────────

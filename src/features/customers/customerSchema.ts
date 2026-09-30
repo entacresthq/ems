@@ -19,6 +19,7 @@ const optionalBvn = z
   .refine((v) => v === '' || isValidBvn(v), { message: 'BVN must be exactly 11 digits.' })
 
 export const guarantorSchema = z.object({
+  id: z.string().optional(),
   fullName: required('Enter the guarantor’s name.'),
   phone,
   address: required('Enter the guarantor’s address.'),
@@ -92,6 +93,7 @@ export const customerSchema = z
 export type CustomerFormValues = z.infer<typeof customerSchema>
 
 export const emptyGuarantor = {
+  id: undefined as string | undefined,
   fullName: '',
   phone: '',
   address: '',
@@ -125,7 +127,15 @@ export function toFormValues(
       phone: c?.nextOfKin?.phone ?? '',
       address: c?.nextOfKin?.address ?? '',
     },
-    guarantors: (c?.guarantors ?? []).map((g) => ({ ...g, bvn: g.bvn ?? '' })),
+    guarantors: (c?.guarantors ?? []).map((g) => ({
+      id: g.id,
+      fullName: g.fullName,
+      phone: g.phone,
+      address: g.address,
+      relationship: g.relationship,
+      occupation: g.occupation,
+      bvn: g.bvn ?? '',
+    })),
   }
 }
 

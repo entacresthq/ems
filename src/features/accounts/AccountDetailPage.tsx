@@ -19,7 +19,8 @@ import { useCurrentUser } from '@/features/auth/AuthProvider'
 import { ExportButton } from '@/features/shared/ExportButton'
 import { CounterPostingDialog } from '@/features/transactions/CounterPostingDialog'
 import { signedAmount, TransactionDialog } from '@/features/transactions/TransactionDialog'
-import { formatDate, formatDateTime } from '@/lib/dates'
+import { formatDate, formatDateTime, todayIso } from '@/lib/dates'
+import { goalProgress } from '@/lib/targetSavings'
 import { toDecimal } from '@/lib/money'
 import { hasPermission } from '@/lib/permissions'
 import {
@@ -113,11 +114,15 @@ function AccountView({ account: a }: { account: Account }) {
       },
       body: 'The balance must be ₦0.00. The account stays open until a manager approves.',
       run: async (reason: string) => {
-        await accountsApi.requestClosure(a.id, reason)
-        toast({
-          title: 'Closure requested',
-          description: 'A branch manager will review it in Approvals.',
-        })
+        const approval = await accountsApi.requestClosure(a.id, reason)
+        toast(
+          approval.status === 'approved'
+            ? { title: 'Account closed', description: `${a.accountNumber} is now closed.` }
+            : {
+                title: 'Closure requested',
+                description: 'A branch manager will review it in Approvals.',
+              },
+        )
       },
     },
   }
@@ -172,6 +177,8 @@ function AccountView({ account: a }: { account: Account }) {
           </div>
         </div>
       </header>
+
+      {a.target && <GoalPanel account={a} target={a.target} />}
 
       {a.type === 'loan' && loan.data && (
         <Panel title="Loan summary" className="mb-6">
@@ -245,6 +252,72 @@ function AccountView({ account: a }: { account: Account }) {
       )}
       <CounterPostingDialog open={posting} onClose={() => setPosting(false)} account={a} />
     </>
+  )
+}
+
+function GoalPanel({ account, target }: { account: Account; target: NonNullable<Account['target']> }) {
+  const g = goalProgress(target, account.balance, todayIso())
+  const status = g.reached
+    ? 'Goal reached'
+    : g.overdue
+      ? `The target date passed ${-g.daysLeft} ${-g.daysLeft === 1 ? 'day' : 'days'} ago`
+      : g.daysLeft === 0
+        ? 'The target date is today'
+        : `${g.daysLeft} ${g.daysLeft === 1 ? 'day' : 'days'} to go`
+  return (
+    <Panel title={`Goal: ${target.goalName}`} className="mb-6">
+      <div className="flex flex-col gap-4">
+        <div>
+          <div className="flex items-baseline justify-between gap-2 text-sm">
+            <span>
+              <Money value={g.saved} className="font-semibold" /> saved of{' '}
+              <Money value={target.targetAmount} />
+            </span>
+            <span className="tabular font-medium">{g.percent}%</span>
+          </div>
+          <div
+            role="progressbar"
+            aria-label={`Progress towards ${target.goalName}`}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={g.percent}
+            className="bg-paper border-rule mt-2 h-3 overflow-hidden rounded-full border"
+          >
+            <div
+              className={g.reached ? 'bg-ledger h-full' : 'bg-ink h-full'}
+              style={{ width: `${g.percent}%` }}
+            />
+          </div>
+        </div>
+        <DescriptionList
+          columns={3}
+          items={[
+            { label: 'Target date', value: `${formatDate(target.targetDate)} · ${status}` },
+            { label: 'Still to save', value: <Money value={g.remaining} /> },
+            {
+              label: 'Withdrawals',
+              value: g.locked
+                ? 'Locked until the goal is reached or the date passes'
+                : target.lockUntilReached
+                  ? 'Open (the lock has ended)'
+                  : 'Open at any time',
+            },
+            ...(g.perWeek && g.perMonth
+              ? [
+                  {
+                    label: 'To get there, save about',
+                    value: (
+                      <>
+                        <Money value={g.perWeek} /> a week or <Money value={g.perMonth} /> a month
+                      </>
+                    ),
+                  },
+                ]
+              : []),
+          ]}
+        />
+      </div>
+    </Panel>
   )
 }
 

@@ -9,7 +9,7 @@ import { generateDb, type MockDb, type StaffRecord } from './seed/generate'
  * from fresh seed data so "today" always has collections to work with.
  */
 
-const SCHEMA_VERSION = 6
+const SCHEMA_VERSION = 8
 const DB_NAME = 'ems-mock'
 const STORE = 'state'
 const CHANNEL = 'ems-mock-changes'

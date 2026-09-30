@@ -1,8 +1,8 @@
 import { delay, http, HttpResponse } from 'msw'
-import { formatDateTime, toLagosIso, todayIso } from '@/lib/dates'
+import { formatDate, formatDateTime, toLagosIso, todayIso } from '@/lib/dates'
 import { formatNaira, ZERO, type Kobo } from '@/lib/money'
 import type { CounterPostingRequest, Transaction, TransactionType } from '@/types'
-import { TRANSACTION_TYPE_LABELS } from '@/types'
+import { approvesOwnRequests, TRANSACTION_TYPE_LABELS } from '@/types'
 import { commit, db } from '../db'
 import {
   DomainError,
@@ -123,6 +123,7 @@ export const operationHandlers = [
       return badRequest(`Account ${account.accountNumber} is closed.`)
     const allowed: Record<string, CounterPostingRequest['type'][]> = {
       savings: ['deposit', 'withdrawal'],
+      target: ['deposit', 'withdrawal'],
       thrift: ['thrift_contribution'],
       loan: ['loan_repayment'],
     }
@@ -142,6 +143,15 @@ export const operationHandlers = [
     if (type === 'withdrawal' && amount > account.balance) {
       return validationError({ amount: [`The balance is only ${formatNaira(account.balance)}.`] })
     }
+    if (type === 'withdrawal' && account.target?.lockUntilReached) {
+      // A locked goal opens once enough is saved or the target date has come.
+      const reached = account.balance >= account.target.targetAmount
+      if (!reached && todayIso() < account.target.targetDate) {
+        return badRequest(
+          `This account is locked until the goal "${account.target.goalName}" is reached (${formatNaira(account.target.targetAmount)}) or ${formatDate(account.target.targetDate)}.`,
+        )
+      }
+    }
     if (type === 'loan_repayment') {
       const loan = loanForAccount(account.id)
       if (loan && amount > loan.outstanding) {
@@ -151,10 +161,13 @@ export const operationHandlers = [
       }
     }
 
-    if (type === 'withdrawal' && amount >= largeWithdrawalThreshold()) {
+    const largeWithdrawal = type === 'withdrawal' && amount >= largeWithdrawalThreshold()
+    // The MD and general managers approve these for everyone else, so theirs go straight through.
+    const selfApproved = largeWithdrawal && approvesOwnRequests(staff)
+    if (largeWithdrawal && !selfApproved) {
       const approval = requestApproval(staff, {
         type: 'large_withdrawal',
-        subject: `Withdraw ${formatNaira(amount)} from savings ${account.accountNumber} for ${account.customerName}`,
+        subject: `Withdraw ${formatNaira(amount)} from ${account.type === 'target' ? 'target savings' : 'savings'} ${account.accountNumber} for ${account.customerName}`,
         amount,
         branchId: account.branchId,
         customerId: account.customerId,
@@ -184,7 +197,7 @@ export const operationHandlers = [
       'transaction.post',
       'transaction',
       txn.id,
-      `${TRANSACTION_TYPE_LABELS[type]} of ${formatNaira(amount)} on ${account.accountNumber} (${txn.reference})`,
+      `${TRANSACTION_TYPE_LABELS[type]} of ${formatNaira(amount)} on ${account.accountNumber} (${txn.reference})${selfApproved ? '. Above the approval limit, approved automatically' : ''}`,
     )
     return HttpResponse.json(
       { status: 'posted', transaction: out.transaction(txn) },
@@ -218,19 +231,26 @@ export const operationHandlers = [
         `Transactions older than ${windowDays} days can't be reversed. Post a correcting entry instead.`,
       )
     }
+    const before = txn.status
     txn.status = 'pending_reversal'
-    const approval = requestApproval(staff, {
-      type: 'transaction_reversal',
-      subject: `Reverse ${txn.reference}: ${TRANSACTION_TYPE_LABELS[txn.type].toLowerCase()} from ${txn.customerName}`,
-      amount: txn.amount,
-      branchId: txn.branchId,
-      customerId: txn.customerId,
-      customerName: txn.customerName,
-      accountId: txn.accountId,
-      transactionId: txn.id,
-      reason,
-    })
-    return HttpResponse.json(out.approval(approval), { status: 201 })
+    try {
+      const approval = requestApproval(staff, {
+        type: 'transaction_reversal',
+        subject: `Reverse ${txn.reference}: ${TRANSACTION_TYPE_LABELS[txn.type].toLowerCase()} from ${txn.customerName}`,
+        amount: txn.amount,
+        branchId: txn.branchId,
+        customerId: txn.customerId,
+        customerName: txn.customerName,
+        accountId: txn.accountId,
+        transactionId: txn.id,
+        reason,
+      })
+      return HttpResponse.json(out.approval(approval), { status: 201 })
+    } catch (e) {
+      txn.status = before
+      if (e instanceof DomainError) return badRequest(e.message)
+      throw e
+    }
   }),
 
   // ── Remittance ─────────────────────────────────────────────────────────

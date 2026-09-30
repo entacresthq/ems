@@ -21,6 +21,10 @@ export const customersApi = {
   update: (id: Id, body: Partial<CustomerInput>) => api.patch<Customer>(`/customers/${id}/`, body),
   uploadPhoto: (id: Id, file: Blob) => upload(`/customers/${id}/photo/`, file),
   uploadSignature: (id: Id, file: Blob) => upload(`/customers/${id}/signature/`, file),
+  uploadGuarantorPhoto: (id: Id, guarantorId: Id, file: Blob) =>
+    upload(`/customers/${id}/guarantors/${guarantorId}/photo/`, file),
+  uploadGuarantorSignature: (id: Id, guarantorId: Id, file: Blob) =>
+    upload(`/customers/${id}/guarantors/${guarantorId}/signature/`, file),
   reassign: (id: Id, officerId: Id) =>
     api.post<Customer>(`/customers/${id}/reassign/`, { officerId }),
 }
