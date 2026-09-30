@@ -66,7 +66,11 @@ export function ApprovalsPage() {
       cell: (a) => (
         <Badge
           tone={
-            a.type === 'transaction_reversal' || a.type === 'large_withdrawal' ? 'warning' : 'info'
+            a.type === 'transaction_reversal' ||
+            a.type === 'large_withdrawal' ||
+            a.type === 'large_transfer'
+              ? 'warning'
+              : 'info'
           }
         >
           {APPROVAL_TYPE_LABELS[a.type]}

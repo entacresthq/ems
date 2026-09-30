@@ -29,7 +29,7 @@ import {
 const TYPES_FOR: Record<Account['type'], CounterPostingRequest['type'][]> = {
   savings: ['deposit', 'withdrawal'],
   target: ['deposit', 'withdrawal'],
-  thrift: ['thrift_contribution'],
+  thrift: ['thrift_contribution', 'withdrawal'],
   loan: ['loan_repayment'],
 }
 
@@ -222,6 +222,13 @@ function PostingForm({ onClose, preset }: { onClose: () => void; preset?: Accoun
           />
         )}
         <MoneyInput label="Amount" value={amount} onChange={setAmount} error={errors.amount} />
+        {account?.type === 'thrift' && type === 'withdrawal' && (
+          <Alert tone="info">
+            Before the cycle ends, money can only come out if the plan allows early withdrawal. Once
+            the cycle is complete, withdrawing the whole balance is recorded as the thrift payout
+            and starts a new cycle.
+          </Alert>
+        )}
         {chargeRule && chargeRule.type !== 'none' && (
           <div className="border-rule bg-paper rounded border px-3 py-2 text-sm" aria-live="polite">
             <p className="flex justify-between gap-3">

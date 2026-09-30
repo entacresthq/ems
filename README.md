@@ -301,7 +301,18 @@ Loan arithmetic lives in `src/lib/loans.ts` and is shared by the application for
 ## Administration
 
 - **Settings:** business details, SMS sender ID, working days and holidays, the large-withdrawal limit, **transaction charges**, the reversal window, the field sync age limit, SMS templates (with a placeholder check and SMS part count) and **what each role allows** (MD only). The MD always keeps every permission, and administrators can't lose access to settings and staff.
-- **Editing transactions:** only the MD and general managers can correct a posted transaction. The permission (`transactions.edit`) can't be given to any other role.
+- **Transfers** (Transactions → Transfer, or Transfer on an account page):
+  - Money goes from a savings, target savings or thrift account to another of the same customer's accounts, or to another customer's account in any branch by account number.
+  - The receiving customer's name is shown before sending.
+  - Paid into a loan, it counts as a repayment.
+  - Both sides share a transfer id. Reversing either side reverses both, and neither side's amount can be edited alone.
+  - Transfers at or above the large-withdrawal limit wait for approval.
+  - The same rules as withdrawals apply: enough balance, target locks and thrift cycles.
+  - There's no transfer charge.
+- **Thrift withdrawals:** thrift accounts can be withdrawn from at the counter.
+  - Before the cycle ends (the contributions since the last payout are fewer than the plan's cycle length), only plans with "Allow early withdrawal" permit it.
+  - After the cycle is complete, withdrawing the whole balance is recorded as the thrift payout (with the payout SMS) and starts the next cycle.
+- **Editing transactions:** the MD, general managers and branch managers can correct a posted transaction. Branch managers can only correct their own branch's transactions. The permission (`transactions.edit`) can't be given to any other role.
   - Any type can have its date and time, payment method and note changed.
   - These types can also have their amount changed: deposits, withdrawals, withdrawal charges, thrift contributions, commissions and payouts, loan repayments and penalties. Loan payouts and processing fees follow the loan's terms, and reversals mirror the original entry.
   - A reason is required.

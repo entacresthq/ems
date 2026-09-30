@@ -54,6 +54,7 @@ export function ApprovalDecisionButtons({
     transaction_reversal: 'An opposite entry is posted and the balance changes straight away.',
     account_closure: 'The account is closed and can no longer take transactions.',
     large_withdrawal: 'The withdrawal is posted and the cashier can pay out the cash.',
+    large_transfer: 'The money moves between the two accounts straight away.',
     loan_application:
       'The loan moves to the cashier to be paid out. The schedule starts on the day it is paid out.',
     loan_extension:

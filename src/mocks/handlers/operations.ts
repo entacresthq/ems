@@ -2,7 +2,12 @@ import { delay, http, HttpResponse } from 'msw'
 import { formatDate, formatDateTime, toLagosIso, todayIso } from '@/lib/dates'
 import { formatNaira, kobo, ZERO, type Kobo } from '@/lib/money'
 import type { CounterPostingRequest, Transaction, TransactionType } from '@/types'
-import { approvesOwnRequests, TRANSACTION_EDITOR_ROLES, TRANSACTION_TYPE_LABELS } from '@/types'
+import {
+  ACCOUNT_TYPE_LABELS,
+  approvesOwnRequests,
+  TRANSACTION_EDITOR_ROLES,
+  TRANSACTION_TYPE_LABELS,
+} from '@/types'
 import { commit, db } from '../db'
 import {
   DomainError,
@@ -20,6 +25,7 @@ import {
   releaseRejected,
   remittanceRow,
   staffName,
+  thriftWithdrawalProblem,
   withdrawalChargeOn,
 } from '../domain'
 import { out } from '../serializers'
@@ -47,6 +53,10 @@ const REVERSIBLE: TransactionType[] = [
   'loan_repayment',
   'deposit',
   'withdrawal',
+  'thrift_payout',
+  // Reversing either side undoes the whole transfer.
+  'transfer_out',
+  'transfer_in',
 ]
 
 /** Counted cash may be zero, unlike payment amounts. */
@@ -127,7 +137,7 @@ export const operationHandlers = [
     const allowed: Record<string, CounterPostingRequest['type'][]> = {
       savings: ['deposit', 'withdrawal'],
       target: ['deposit', 'withdrawal'],
-      thrift: ['thrift_contribution'],
+      thrift: ['thrift_contribution', 'withdrawal'],
       loan: ['loan_repayment'],
     }
     const type = body.type
@@ -153,6 +163,10 @@ export const operationHandlers = [
         ],
       })
     }
+    if (type === 'withdrawal') {
+      const thriftProblem = thriftWithdrawalProblem(account)
+      if (thriftProblem) return badRequest(thriftProblem, 'thrift_cycle_open')
+    }
     if (type === 'withdrawal' && account.target?.lockUntilReached) {
       // A locked goal opens once enough is saved or the target date has come.
       const reached = account.balance >= account.target.targetAmount
@@ -177,7 +191,7 @@ export const operationHandlers = [
     if (largeWithdrawal && !selfApproved) {
       const approval = requestApproval(staff, {
         type: 'large_withdrawal',
-        subject: `Withdraw ${formatNaira(amount)} from ${account.type === 'target' ? 'target savings' : 'savings'} ${account.accountNumber} for ${account.customerName}`,
+        subject: `Withdraw ${formatNaira(amount)} from ${ACCOUNT_TYPE_LABELS[account.type].toLowerCase()} ${account.accountNumber} for ${account.customerName}`,
         amount,
         branchId: account.branchId,
         customerId: account.customerId,
@@ -238,7 +252,7 @@ export const operationHandlers = [
     const staff = authenticate(request)
     if (staff instanceof Response) return staff
     if (!TRANSACTION_EDITOR_ROLES.includes(staff.role) || !can(staff, 'transactions.edit'))
-      return forbidden('Only the MD and general managers can edit transactions.')
+      return forbidden('Only the MD, general managers and branch managers can edit transactions.')
     const txn = db().transactions.find((t) => t.id === params.id)
     if (!txn || !inScope(staff, txn)) return notFound()
     const body = await readBody<Record<string, unknown>>(request)

@@ -60,15 +60,40 @@ describe('editing posted transactions', () => {
     await resetMockDb()
   })
 
-  it('is only for the MD and general managers', async () => {
-    const { deposit } = savingsWithDeposits()
-    for (const email of ['cashier@ems.ng', 'accountant@ems.ng', 'manager@ems.ng', 'admin@ems.ng']) {
+  it('is only for the MD, general managers and branch managers (in their branch)', async () => {
+    const manager = db().staff.find((s) => s.email === 'manager@ems.ng')!
+    const account = db().accounts.find(
+      (a) =>
+        a.type === 'savings' &&
+        a.branchId === manager.branchId &&
+        db().transactions.some(
+          (t) => t.accountId === a.id && t.type === 'deposit' && t.status === 'posted',
+        ),
+    )!
+    const deposit = db().transactions.find(
+      (t) => t.accountId === account.id && t.type === 'deposit' && t.status === 'posted',
+    )!
+    for (const email of ['cashier@ems.ng', 'accountant@ems.ng', 'admin@ems.ng']) {
       as(email)
       const err = await apiError(
         transactionsApi.edit(deposit.id, { narration: 'Changed', reason: REASON }),
       )
-      expect([403, 404]).toContain(err.status)
+      expect(err.status).toBe(403)
     }
+    // A branch manager corrects their own branch's transactions, and no other branch's.
+    as('manager@ems.ng')
+    const byManager = await transactionsApi.edit(deposit.id, {
+      narration: 'Paid in person',
+      reason: REASON,
+    })
+    expect(byManager.narration).toBe('Paid in person')
+    const elsewhere = db().transactions.find(
+      (t) => t.branchId !== manager.branchId && t.type === 'deposit' && t.status === 'posted',
+    )!
+    const err = await apiError(
+      transactionsApi.edit(elsewhere.id, { narration: 'x', reason: REASON }),
+    )
+    expect(err.status).toBe(404)
     as('gm@ems.ng')
     const edited = await transactionsApi.edit(deposit.id, {
       narration: 'Paid by her son',
@@ -85,10 +110,13 @@ describe('editing posted transactions', () => {
     const saved = await settingsApi.update({
       rolePermissions: {
         ...s.rolePermissions,
-        branch_manager: [...s.rolePermissions.branch_manager, 'transactions.edit'],
+        accountant: [...s.rolePermissions.accountant, 'transactions.edit'],
+        cashier: [...s.rolePermissions.cashier, 'transactions.edit'],
       },
     })
-    expect(saved.rolePermissions.branch_manager).not.toContain('transactions.edit')
+    expect(saved.rolePermissions.accountant).not.toContain('transactions.edit')
+    expect(saved.rolePermissions.cashier).not.toContain('transactions.edit')
+    expect(saved.rolePermissions.branch_manager).toContain('transactions.edit')
     expect(saved.rolePermissions.general_manager).toContain('transactions.edit')
   })
 

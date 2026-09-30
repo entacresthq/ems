@@ -260,6 +260,8 @@ export interface PostingInput {
   officer?: StaffRecord | null
   /** On a withdrawal charge: the withdrawal it was taken for. */
   chargedOnId?: string | null
+  /** Both sides of a transfer share this id. */
+  transferId?: string | null
 }
 
 export function post(input: PostingInput): Transaction {
@@ -290,6 +292,7 @@ export function post(input: PostingInput): Transaction {
     idempotencyKey: input.idempotencyKey ?? null,
     narration: input.narration ?? null,
     ...(input.chargedOnId ? { chargedOnId: input.chargedOnId } : {}),
+    ...(input.transferId ? { transferId: input.transferId } : {}),
     createdAt,
   }
   db().transactions.unshift(txn)
@@ -312,10 +315,13 @@ export function reverse(original: Transaction, approver: StaffRecord, reason: st
     narration: `Reversal of ${original.reference}: ${reason}`,
   })
   original.status = 'reversed'
-  // Undoing a withdrawal also refunds what was charged for it.
-  if (original.type === 'withdrawal') {
-    for (const charge of db().transactions) {
-      if (charge.chargedOnId !== original.id || charge.status === 'reversed') continue
+  // Undoing a withdrawal also refunds what was charged for it. (Collect first:
+  // posting adds to the list being searched.)
+  if (original.type === 'withdrawal' || original.type === 'thrift_payout') {
+    const charges = db().transactions.filter(
+      (t) => t.chargedOnId === original.id && t.status !== 'reversed',
+    )
+    for (const charge of charges) {
       post({
         account,
         type: 'reversal',
@@ -329,8 +335,38 @@ export function reverse(original: Transaction, approver: StaffRecord, reason: st
       charge.status = 'reversed'
     }
   }
+  // A transfer is undone on both sides.
+  if (original.transferId) {
+    const others = db().transactions.filter(
+      (t) =>
+        t.transferId === original.transferId && t.id !== original.id && t.status !== 'reversed',
+    )
+    for (const other of others) reverse(other, approver, reason)
+  }
   commit()
   return reversal
+}
+
+/** Where a thrift account is in its cycle: contributions since the last payout. */
+export function thriftCycle(account: Account) {
+  const plan = db().thriftPlans.find((p) => p.id === account.productId)
+  let paid = 0
+  // The list holds the newest first, so stop at the most recent payout.
+  for (const t of db().transactions) {
+    if (t.accountId !== account.id || t.status !== 'posted') continue
+    if (t.type === 'thrift_payout') break
+    if (t.type === 'thrift_contribution') paid++
+  }
+  const length = plan?.cycleLength ?? 0
+  return { plan, paid, length, complete: length > 0 && paid >= length }
+}
+
+/** Why money can't come out of this thrift account now, or null if it can. */
+export function thriftWithdrawalProblem(account: Account): string | null {
+  if (account.type !== 'thrift') return null
+  const { plan, paid, length, complete } = thriftCycle(account)
+  if (complete || plan?.earlyWithdrawalAllowed) return null
+  return `This ${plan?.name ?? 'thrift'} cycle has ${paid} of ${length} contributions, and the plan doesn’t allow withdrawals before the cycle ends. Allow early withdrawal on the plan, or pay out once the cycle is complete.`
 }
 
 /** What a withdrawal of `amount` from this account costs under the current Settings. */
@@ -351,9 +387,15 @@ export function postWithdrawal(input: {
   narration: string | null
 }): { withdrawal: Transaction; charge: Transaction | null } {
   const fee = withdrawalChargeOn(input.account, input.amount)
+  // Taking out the whole balance of a completed thrift cycle is its payout, which
+  // starts the next cycle.
+  const payout =
+    input.account.type === 'thrift' &&
+    input.amount === input.account.balance &&
+    thriftCycle(input.account).complete
   const withdrawal = post({
     account: input.account,
-    type: 'withdrawal',
+    type: payout ? 'thrift_payout' : 'withdrawal',
     direction: 'debit',
     amount: input.amount,
     channel: 'counter',
@@ -375,7 +417,108 @@ export function postWithdrawal(input: {
           chargedOnId: withdrawal.id,
         })
       : null
+  if (payout) {
+    const customer = db().customers.find((c) => c.id === input.account.customerId)
+    if (customer)
+      sendTemplateSms(customer.phone, 'thrift_payout', {
+        customer_name: `${customer.firstName} ${customer.lastName}`,
+        amount: formatNaira(input.amount),
+        account_number: input.account.accountNumber,
+      })
+  }
   return { withdrawal, charge }
+}
+
+// ── Transfers ─────────────────────────────────────────────────────────────
+
+/** Accounts money can be sent from, and to. */
+const TRANSFER_FROM: readonly Account['type'][] = ['savings', 'target', 'thrift']
+const TRANSFER_TO: readonly Account['type'][] = ['savings', 'target', 'thrift', 'loan']
+
+/**
+ * Why this transfer can't go ahead, as [field, message], or null if it can.
+ * Checked when it is requested and again when a large one is approved.
+ */
+export function transferProblem(
+  from: Account | undefined,
+  to: Account | undefined,
+  amount: Kobo,
+): [field: string, message: string] | null {
+  if (!from) return ['fromAccountId', 'Find the account the money comes from.']
+  if (!to) return ['toAccountId', 'Find the account the money goes to.']
+  if (from.id === to.id) return ['toAccountId', 'Choose a different account to send to.']
+  if (!TRANSFER_FROM.includes(from.type))
+    return ['fromAccountId', 'Money can be sent from savings, target savings and thrift accounts.']
+  if (from.status !== 'active')
+    return ['fromAccountId', `Account ${from.accountNumber} is ${from.status}.`]
+  if (to.status !== 'active')
+    return [
+      'toAccountId',
+      `Account ${to.accountNumber} is ${to.status}, so it can’t receive money.`,
+    ]
+  if (!TRANSFER_TO.includes(to.type))
+    return ['toAccountId', 'Money can go to savings, target savings, thrift and loan accounts.']
+  if (amount <= 0) return ['amount', 'Enter an amount greater than ₦0.']
+  if (amount > from.balance)
+    return ['amount', `The balance of ${from.accountNumber} is only ${formatNaira(from.balance)}.`]
+  if (from.target?.lockUntilReached) {
+    const reached = from.balance >= from.target.targetAmount
+    if (!reached && todayIso() < from.target.targetDate)
+      return [
+        'fromAccountId',
+        `This account is locked until the goal "${from.target.goalName}" is reached or ${formatDate(from.target.targetDate)}.`,
+      ]
+  }
+  const thrift = thriftWithdrawalProblem(from)
+  if (thrift) return ['fromAccountId', thrift]
+  if (to.type === 'loan') {
+    const loan = db().loans.find((l) => l.accountId === to.id)
+    if (!loan || loan.status !== 'active')
+      return ['toAccountId', 'That loan isn’t active, so it can’t take a repayment.']
+    if (amount > loan.outstanding)
+      return ['amount', `That is more than the ${formatNaira(loan.outstanding)} left on the loan.`]
+  }
+  return null
+}
+
+/**
+ * Move money between two accounts: the same customer's, or another customer's.
+ * Paid into a loan it is a repayment. Both sides share a transfer id, so
+ * reversing one reverses both. The caller checks transferProblem first.
+ */
+export function postTransfer(input: {
+  from: Account
+  to: Account
+  amount: Kobo
+  postedBy: StaffRecord
+  narration: string | null
+}): { debit: Transaction; credit: Transaction } {
+  const { from, to, amount, postedBy } = input
+  const transferId = newId()
+  const note = input.narration ? ` · ${input.narration}` : ''
+  const debit = post({
+    account: from,
+    type: 'transfer_out',
+    direction: 'debit',
+    amount,
+    channel: 'counter',
+    postedBy,
+    paymentMethod: null,
+    narration: `To ${to.accountNumber} (${to.customerName})${note}`,
+    transferId,
+  })
+  const credit = post({
+    account: to,
+    type: to.type === 'loan' ? 'loan_repayment' : 'transfer_in',
+    direction: 'credit',
+    amount,
+    channel: 'counter',
+    postedBy,
+    paymentMethod: null,
+    narration: `From ${from.accountNumber} (${from.customerName})${note}`,
+    transferId,
+  })
+  return { debit, credit }
 }
 
 // ── Corrections ───────────────────────────────────────────────────────────
@@ -438,6 +581,11 @@ export function editTransaction(
   const changes: TransactionEdit['changes'] = []
 
   if (input.amount !== undefined && input.amount !== txn.amount) {
+    if (txn.transferId)
+      throw new DomainError(
+        'This is one side of a transfer, so its amount can’t be changed alone. Reverse the transfer and send it again. You can still change the date or note.',
+        'amount',
+      )
     if (!AMOUNT_EDITABLE_TYPES.includes(txn.type))
       throw new DomainError(
         `The amount of a ${TRANSACTION_TYPE_LABELS[txn.type].toLowerCase()} follows the loan’s terms or the original entry, so it can’t be edited. You can still change the date or note.`,
@@ -893,6 +1041,8 @@ export function executeApproval(approval: ApprovalRecord, approver: StaffRecord)
       const posting = approval.payload.posting
       const account = data.accounts.find((a) => a.id === posting?.accountId)
       if (!posting || !account) throw new DomainError('The account no longer exists.')
+      const thriftProblem = thriftWithdrawalProblem(account)
+      if (thriftProblem) throw new DomainError(thriftProblem)
       const fee = withdrawalChargeOn(account, posting.amount)
       if (account.balance < posting.amount + fee)
         throw new DomainError(
@@ -907,6 +1057,23 @@ export function executeApproval(approval: ApprovalRecord, approver: StaffRecord)
         postedBy: requester,
         paymentMethod: posting.paymentMethod,
         narration: posting.narration || null,
+      })
+      break
+    }
+    case 'large_transfer': {
+      const transfer = approval.payload.transfer
+      if (!transfer) throw new DomainError('The transfer details are missing.')
+      const from = data.accounts.find((a) => a.id === transfer.fromAccountId)
+      const to = data.accounts.find((a) => a.id === transfer.toAccountId)
+      const problem = transferProblem(from, to, transfer.amount)
+      if (problem) throw new DomainError(problem[1])
+      const requester = data.staff.find((s) => s.id === approval.requestedById) ?? approver
+      postTransfer({
+        from: from!,
+        to: to!,
+        amount: transfer.amount,
+        postedBy: requester,
+        narration: transfer.narration || null,
       })
       break
     }

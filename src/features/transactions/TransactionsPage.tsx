@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { Plus } from 'lucide-react'
+import { Plus, ArrowLeftRight } from 'lucide-react'
 import { fetchAll } from '@/api/pagination'
 import { transactionKeys, transactionsApi } from '@/api/transactions'
 import { DataTable, type Column } from '@/components/data/DataTable'
@@ -25,6 +25,7 @@ import {
   type TransactionType,
 } from '@/types'
 import { CounterPostingDialog } from './CounterPostingDialog'
+import { TransferDialog } from './TransferDialog'
 import { signedAmount, TransactionDialog } from './TransactionDialog'
 
 const FILTERS = [
@@ -45,6 +46,7 @@ export function TransactionsPage() {
   const f = list.filters
   const [selected, setSelected] = useState<Transaction | null>(null)
   const [posting, setPosting] = useState(false)
+  const [transferring, setTransferring] = useState(false)
 
   const params: TransactionListParams = {
     page: list.page,
@@ -118,6 +120,12 @@ export function TransactionsPage() {
         description="Every posting in the branches you can see. Select a row for details or to request a reversal."
         actions={
           <Can permission="transactions.post">
+            <Button
+              icon={<ArrowLeftRight className="size-4" aria-hidden />}
+              onClick={() => setTransferring(true)}
+            >
+              Transfer
+            </Button>
             <Button
               variant="primary"
               icon={<Plus className="size-4" aria-hidden />}
@@ -280,6 +288,7 @@ export function TransactionsPage() {
       />
       <TransactionDialog transaction={selected} onClose={() => setSelected(null)} />
       <CounterPostingDialog open={posting} onClose={() => setPosting(false)} />
+      <TransferDialog open={transferring} onClose={() => setTransferring(false)} />
     </>
   )
 }

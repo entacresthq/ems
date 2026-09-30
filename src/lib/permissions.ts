@@ -31,6 +31,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'remittance.view',
     'transactions.view',
     'transactions.request_reversal',
+    'transactions.edit',
     'approvals.view',
     'approvals.decide',
     'reports.view',

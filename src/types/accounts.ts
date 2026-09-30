@@ -153,6 +153,8 @@ export type TransactionType =
   | 'deposit'
   | 'withdrawal'
   | 'withdrawal_charge'
+  | 'transfer_out'
+  | 'transfer_in'
   | 'disbursement'
   | 'processing_fee'
   | 'penalty'
@@ -220,6 +222,8 @@ export interface Transaction {
   narration: string | null
   /** On a withdrawal charge: the withdrawal it was taken for. */
   chargedOnId?: Id | null
+  /** Both sides of a transfer share this id. */
+  transferId?: Id | null
   /** Corrections made by the MD or a general manager, oldest first. */
   edits?: TransactionEdit[]
   createdAt: IsoDateTime
@@ -243,6 +247,8 @@ export const TRANSACTION_TYPE_LABELS: Record<TransactionType, string> = {
   deposit: 'Deposit',
   withdrawal: 'Withdrawal',
   withdrawal_charge: 'Withdrawal charge',
+  transfer_out: 'Transfer out',
+  transfer_in: 'Transfer in',
   disbursement: 'Loan disbursement',
   processing_fee: 'Processing fee',
   penalty: 'Penalty',

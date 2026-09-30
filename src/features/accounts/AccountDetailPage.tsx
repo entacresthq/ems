@@ -18,6 +18,7 @@ import { PendingApprovalBanner } from '@/features/approvals/ApprovalControls'
 import { useCurrentUser } from '@/features/auth/AuthProvider'
 import { ExportButton } from '@/features/shared/ExportButton'
 import { CounterPostingDialog } from '@/features/transactions/CounterPostingDialog'
+import { TransferDialog } from '@/features/transactions/TransferDialog'
 import { signedAmount, TransactionDialog } from '@/features/transactions/TransactionDialog'
 import { formatDate, formatDateTime, todayIso } from '@/lib/dates'
 import { goalProgress } from '@/lib/targetSavings'
@@ -54,6 +55,7 @@ function AccountView({ account: a }: { account: Account }) {
   const queryClient = useQueryClient()
   const [action, setAction] = useState<Action>(null)
   const [posting, setPosting] = useState(false)
+  const [transferring, setTransferring] = useState(false)
   const loan = useQuery({
     queryKey: loanKeys.list({ account: a.id }),
     queryFn: () => loansApi.list({ account: a.id }),
@@ -169,6 +171,9 @@ function AccountView({ account: a }: { account: Account }) {
             {a.status !== 'closed' && a.type !== 'loan' && can('accounts.request_close') && (
               <Button onClick={() => setAction('close')}>Request closure</Button>
             )}
+            {a.status === 'active' && a.type !== 'loan' && can('transactions.post') && (
+              <Button onClick={() => setTransferring(true)}>Transfer</Button>
+            )}
             {a.status === 'active' && can('transactions.post') && (
               <Button variant="primary" onClick={() => setPosting(true)}>
                 Post transaction
@@ -251,6 +256,7 @@ function AccountView({ account: a }: { account: Account }) {
         </ConfirmDialog>
       )}
       <CounterPostingDialog open={posting} onClose={() => setPosting(false)} account={a} />
+      <TransferDialog open={transferring} onClose={() => setTransferring(false)} from={a} />
     </>
   )
 }

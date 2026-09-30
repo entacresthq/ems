@@ -1,5 +1,6 @@
 import { DEFAULT_ACCOUNT_NUMBER_FORMAT } from '@/lib/accountNumber'
 import { NO_CHARGES } from '@/lib/charges'
+import type { Role } from '@/types'
 import type { MockDb } from './seed/generate'
 
 type Legacy = Record<string, unknown>
@@ -64,15 +65,20 @@ function migrateGuarantors(list: unknown): void {
  */
 function grantTransactionEditing(data: MockDb): void {
   const done = (data.settings.migrations ??= [])
-  if (done.includes('transactions.edit')) return
   const matrix = data.settings.rolePermissions
-  for (const role of ['md', 'general_manager'] as const)
-    if (matrix[role] && !matrix[role].includes('transactions.edit'))
-      matrix[role].push('transactions.edit')
-  for (const s of data.staff)
-    if (s.role === 'general_manager' && !s.permissions.includes('transactions.edit'))
-      s.permissions.push('transactions.edit')
-  done.push('transactions.edit')
+  const grant = (marker: string, roles: readonly Role[], staffRoles: readonly Role[]) => {
+    if (done.includes(marker)) return
+    for (const role of roles)
+      if (matrix[role] && !matrix[role].includes('transactions.edit'))
+        matrix[role].push('transactions.edit')
+    for (const s of data.staff)
+      if (staffRoles.includes(s.role) && !s.permissions.includes('transactions.edit'))
+        s.permissions.push('transactions.edit')
+    done.push(marker)
+  }
+  grant('transactions.edit', ['md', 'general_manager'], ['general_manager'])
+  // Branch managers were added later.
+  grant('transactions.edit.branch_manager', ['branch_manager'], ['branch_manager'])
 }
 
 function migrateOtherRecords(data: MockDb): void {

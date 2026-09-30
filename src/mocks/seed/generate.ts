@@ -6,6 +6,7 @@ import type {
   AuditEntry,
   BusinessSettings,
   CounterPostingRequest,
+  TransferRequest,
   Branch,
   Customer,
   CustomerStatus,
@@ -74,6 +75,7 @@ export interface ApprovalRecord extends Approval {
   payload: {
     thriftPlanId?: string | null
     posting?: CounterPostingRequest
+    transfer?: TransferRequest
     extraInstallments?: number
   }
 }

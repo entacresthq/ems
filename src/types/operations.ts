@@ -1,5 +1,12 @@
 import type { Kobo } from '@/lib/money'
-import type { Account, Loan, PaymentMethod, Transaction } from './accounts'
+import type {
+  Account,
+  AccountStatus,
+  AccountType,
+  Loan,
+  PaymentMethod,
+  Transaction,
+} from './accounts'
 import type { GeoPoint, Id, IsoDate, IsoDateTime, ListParams } from './common'
 import type { Customer } from './customer'
 
@@ -106,6 +113,7 @@ export type ApprovalType =
   | 'transaction_reversal'
   | 'account_closure'
   | 'large_withdrawal'
+  | 'large_transfer'
   | 'loan_application'
   | 'loan_extension'
 
@@ -114,6 +122,7 @@ export const APPROVAL_TYPE_LABELS: Record<ApprovalType, string> = {
   transaction_reversal: 'Reversal',
   account_closure: 'Account closure',
   large_withdrawal: 'Large withdrawal',
+  large_transfer: 'Large transfer',
   loan_application: 'Loan',
   loan_extension: 'Loan extension',
 }
@@ -159,6 +168,30 @@ export interface CounterPostingRequest {
   amount: Kobo
   paymentMethod: PaymentMethod
   narration: string
+}
+
+/** Move money between accounts: the same customer's, or another customer's. */
+export interface TransferRequest {
+  fromAccountId: Id
+  toAccountId: Id
+  amount: Kobo
+  narration: string
+}
+
+export type TransferResponse =
+  | { status: 'posted'; debit: Transaction; credit: Transaction }
+  | { status: 'pending_approval'; approval: Approval }
+
+/** What a name check on an account number shows before money is sent to it. */
+export interface AccountEnquiry {
+  id: Id
+  accountNumber: string
+  customerId: Id
+  customerName: string
+  type: AccountType
+  productName: string | null
+  branchName: string
+  status: AccountStatus
 }
 
 /** Counter postings either post at once or, for large withdrawals, wait for approval. */

@@ -26,7 +26,15 @@ const FIELD_LABELS: Record<TransactionEdit['changes'][number]['field'], string> 
   note: 'Note',
 }
 
-const REVERSIBLE = new Set(['thrift_contribution', 'loan_repayment', 'deposit', 'withdrawal'])
+const REVERSIBLE = new Set([
+  'thrift_contribution',
+  'loan_repayment',
+  'deposit',
+  'withdrawal',
+  'thrift_payout',
+  'transfer_out',
+  'transfer_in',
+])
 
 export function signedAmount(t: Transaction) {
   return (t.direction === 'debit' ? -t.amount : t.amount) as Transaction['amount']
@@ -226,6 +234,7 @@ export function TransactionDialog({
           </p>
           <p>
             Nothing changes until a branch manager approves. You can't approve your own request.
+            {t.transferId && ' Both sides of the transfer are reversed together.'}
           </p>
         </ConfirmDialog>
       )}
