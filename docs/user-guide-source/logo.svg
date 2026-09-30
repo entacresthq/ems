@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 710 704">
+  <defs>
+    <linearGradient id="ochre" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#F7924B"/>
+      <stop offset="1" stop-color="#FAD62C"/>
+    </linearGradient>
+    <clipPath id="disc"><circle cx="355" cy="357" r="345"/></clipPath>
+  </defs>
+  <g fill="none" stroke="#0A2A6B" stroke-width="60">
+    <path d="M71.4 494.1A315 315 0 0 1 512.5 84.2"/>
+    <path d="M643.4 230.4A315 315 0 0 1 197.5 629.8"/>
+  </g>
+  <g fill="#0A2A6B" clip-path="url(#disc)">
+    <path d="M200 255L710 -81V14L200 350Z"/>
+    <path d="M510 449L0 785V690L510 354Z"/>
+  </g>
+  <path fill="url(#ochre)" d="M200 400L510 199V304L200 505Z"/>
+  <g fill="#0A2A6B"><circle cx="71.4" cy="494.1" r="56"/><circle cx="643.4" cy="230.4" r="56"/></g>
+  <g fill="#FFFFFF"><circle cx="71.4" cy="494.1" r="41"/><circle cx="643.4" cy="230.4" r="41"/></g>
+  <g fill="url(#ochre)"><circle cx="71.4" cy="494.1" r="29"/><circle cx="643.4" cy="230.4" r="29"/></g>
+</svg>

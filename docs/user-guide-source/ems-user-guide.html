@@ -1,0 +1,574 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>EMS User Guide</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  @page { size: A4; margin: 18mm 16mm 20mm; }
+  @page :first { margin: 0; }
+  :root { --ink:#16211c; --ink2:#55605a; --green:#0d6b4a; --tint:#eaf3ee; --ochre:#9a5b00; --ochretint:#fbf1e2; --rule:#dcd8cf; --paper:#f4f2ec; }
+  * { box-sizing: border-box; }
+  body { font-family: 'IBM Plex Sans', system-ui, sans-serif; color: var(--ink); font-size: 10.5pt; line-height: 1.55; margin: 0; background: #fff; }
+  h1 { font-size: 20pt; margin: 0 0 4mm; line-height: 1.2; }
+  h2 { font-size: 13pt; margin: 7mm 0 2mm; }
+  h3 { font-size: 11pt; margin: 5mm 0 1.5mm; }
+  p { margin: 0 0 2.5mm; }
+  code, .mono { font-family: 'IBM Plex Mono', monospace; font-size: 9.5pt; background: var(--paper); padding: 0 1.2mm; border-radius: 1mm; }
+  .chapter { page-break-before: always; }
+  .kicker { font-size: 9pt; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--green); margin-bottom: 1mm; }
+  .lead { font-size: 11.5pt; color: var(--ink2); margin-bottom: 5mm; }
+  ol.steps { list-style: none; counter-reset: s; padding: 0; margin: 0 0 3mm; }
+  ol.steps > li { counter-increment: s; position: relative; padding-left: 10mm; margin-bottom: 2.5mm; }
+  ol.steps > li::before { content: counter(s); position: absolute; left: 0; top: .2mm; width: 6.5mm; height: 6.5mm; border-radius: 50%; background: var(--green); color: #fff; font-weight: 600; font-size: 9pt; display: flex; align-items: center; justify-content: center; }
+  ul { margin: 0 0 3mm; padding-left: 5.5mm; }
+  li { margin-bottom: 1mm; }
+  .ui { font-weight: 600; }
+  .ui::before { content: '“'; } .ui::after { content: '”'; }
+  .path { font-weight: 600; white-space: nowrap; }
+  figure { margin: 3mm 0 5mm; page-break-inside: avoid; }
+  figure img { width: 100%; border: 1px solid var(--rule); border-radius: 2mm; display: block; }
+  figure.narrow img { width: 62%; margin: 0 auto; }
+  figure.phone img { width: 42%; margin: 0 auto; }
+  figcaption { font-size: 8.5pt; color: var(--ink2); margin-top: 1.5mm; text-align: center; }
+  .note, .warn, .tip { border-left: 1.2mm solid var(--green); background: var(--tint); padding: 2.5mm 4mm; margin: 3mm 0 4mm; border-radius: 0 1.5mm 1.5mm 0; page-break-inside: avoid; }
+  .warn { border-color: var(--ochre); background: var(--ochretint); }
+  .note strong:first-child, .warn strong:first-child, .tip strong:first-child { display: block; margin-bottom: .5mm; }
+  table { border-collapse: collapse; width: 100%; margin: 2mm 0 5mm; font-size: 9.5pt; page-break-inside: avoid; }
+  th, td { text-align: left; vertical-align: top; padding: 1.8mm 2.5mm; border-bottom: 1px solid var(--rule); }
+  th { background: var(--paper); font-weight: 600; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 6mm; }
+  .avoid { page-break-inside: avoid; }
+  .two.small img { height: 58mm; width: auto; max-width: 100%; margin: 0 auto; }
+  .ready img { height: 62mm; width: auto; margin: 0 auto; }
+
+  /* Cover */
+  .cover { height: 297mm; padding: 28mm 24mm; display: flex; flex-direction: column; background: var(--ink); color: #fff; }
+  .cover .brand { display: flex; align-items: center; gap: 5mm; }
+  .cover .brand img { width: 22mm; height: 22mm; background: #fff; border-radius: 50%; padding: 2mm; }
+  .cover .brand b { font-size: 26pt; display: block; line-height: 1; }
+  .cover .brand span { color: #b9c4bd; font-size: 12pt; }
+  .cover h1 { font-size: 34pt; margin-top: 55mm; line-height: 1.1; }
+  .cover .sub { font-size: 14pt; color: #cfd8d2; max-width: 140mm; }
+  .cover .meta { margin-top: auto; color: #9aa79f; font-size: 10pt; border-top: 1px solid #36443c; padding-top: 5mm; }
+
+  /* Contents */
+  .toc { list-style: none; padding: 0; columns: 1; }
+  .toc li { display: flex; gap: 4mm; padding: 2mm 0; border-bottom: 1px dotted var(--rule); margin: 0; }
+  .toc li b { width: 8mm; color: var(--green); }
+  .toc li span { color: var(--ink2); margin-left: auto; font-size: 9pt; }
+</style>
+</head>
+<body>
+
+<!-- ───────────── COVER ───────────── -->
+<section class="cover">
+  <div class="brand">
+    <img src="logo.svg" alt="">
+    <div><b>EMS</b><span>Entacrest MFB Solution</span></div>
+  </div>
+  <h1>User guide</h1>
+  <p class="sub">How to install and set up EMS, step by step, and how to use every feature: customers, savings, thrift, loans, transfers, field collections, approvals and reports.</p>
+  <div class="meta">Version 0.1 · September 2026<br>An Entacrest Nexus product</div>
+</section>
+
+<!-- ───────────── CONTENTS ───────────── -->
+<section class="chapter">
+  <div class="kicker">Contents</div>
+  <h1>What’s in this guide</h1>
+  <ul class="toc">
+    <li><b>1</b>What EMS does<span>Overview and who uses it</span></li>
+    <li><b>2</b>Before you start<span>What to have ready</span></li>
+    <li><b>3</b>Install EMS<span>Step by step</span></li>
+    <li><b>4</b>Activate your licence<span>Step by step</span></li>
+    <li><b>5</b>Set up your business and sign in<span>Step by step</span></li>
+    <li><b>6</b>Your first week: set-up checklist<span>Branches, staff, products, settings</span></li>
+    <li><b>7</b>Using EMS on several computers<span>Office network, Supabase, web</span></li>
+    <li><b>8</b>Customers and accounts</li>
+    <li><b>9</b>Deposits, withdrawals and charges</li>
+    <li><b>10</b>Transfers between accounts</li>
+    <li><b>11</b>Thrift (ajo/esusu) savings</li>
+    <li><b>12</b>Field collections and remittance</li>
+    <li><b>13</b>Loans</li>
+    <li><b>14</b>Approvals</li>
+    <li><b>15</b>Correcting mistakes: reversals and edits</li>
+    <li><b>16</b>Reports and the audit log</li>
+    <li><b>17</b>Practising with the demo workspace</li>
+    <li><b>18</b>Backups</li>
+    <li><b>19</b>Troubleshooting</li>
+    <li><b>20</b>Roles at a glance</li>
+  </ul>
+</section>
+
+<!-- ───────────── 1 ───────────── -->
+<section class="chapter">
+  <div class="kicker">Chapter 1</div>
+  <h1>What EMS does</h1>
+  <p class="lead">EMS runs the day-to-day work of a microfinance bank, cooperative or thrift society, from the counter to the field to the MD’s desk.</p>
+
+  <table>
+    <tr><th style="width:32%">Area</th><th>What you can do</th></tr>
+    <tr><td>Customers and accounts</td><td>Register customers with their ID, photo and next of kin. Open savings, target savings, thrift and loan accounts. Print statements.</td></tr>
+    <tr><td>Counter</td><td>Post deposits and withdrawals, with automatic withdrawal charges. Large withdrawals wait for a manager’s approval.</td></tr>
+    <tr><td>Transfers</td><td>Move money between a customer’s own accounts, or to another customer. Paying into a loan counts as a repayment.</td></tr>
+    <tr><td>Thrift</td><td>Daily, weekly or monthly contribution plans with commission, cycles and payouts.</td></tr>
+    <tr><td>Field app</td><td>Account officers collect money in the market on a phone, even offline, and close their day. The accountant counts their cash.</td></tr>
+    <tr><td>Loans</td><td>Loan products with monthly or overall interest, processing fees and daily late fees. Applications, approval, payout, repayment schedules, top-ups and extensions.</td></tr>
+    <tr><td>Control</td><td>Approvals for sensitive actions, reversals, edits by senior staff only, and a full audit log of who did what.</td></tr>
+    <tr><td>Reports</td><td>Staff and branch performance, income, loan portfolio, defaulters, dormant accounts and more, exported to PDF or CSV.</td></tr>
+  </table>
+
+  <h2>Who uses EMS</h2>
+  <p>Everyone signs in with their own email and password, plus a 6-digit code sent to their phone. What each person sees depends on their <b>role</b> and the <b>permissions</b> the MD gives them. See Chapter 20 for a summary.</p>
+
+  <h2>Two ways to use it</h2>
+  <ul>
+    <li><b>Desktop app (Windows).</b> Install it on your office computer. This guide mostly describes the desktop app.</li>
+    <li><b>Web.</b> Your organisation can also host EMS online and staff open it in a browser. The screens are the same.</li>
+  </ul>
+</section>
+
+<!-- ───────────── 2 ───────────── -->
+<section class="chapter">
+  <div class="kicker">Chapter 2</div>
+  <h1>Before you start</h1>
+  <p class="lead">Have these ready. The whole set-up takes about 15 minutes.</p>
+  <ol class="steps">
+    <li><b>A Windows 10 or 11 computer</b> for the head office. It will hold your data, so use a reliable machine.</li>
+    <li><b>The installer file</b>, <code>EMS-Setup-0.1.0.exe</code>, from Entacrest.</li>
+    <li><b>Your licence code</b> from Entacrest. It is a long block of text starting with <code>EMS-</code>. Your licence sets how many branches you can run and when it must be renewed.</li>
+    <li><b>Your business details:</b> name, head office address, phone number.</li>
+    <li><b>The MD’s details:</b> name, work email, mobile number and a strong password (at least 8 characters with a capital letter, a lowercase letter and a number).</li>
+    <li><b>Your branch list</b>, each with a two-digit code (01, 02…) and the market areas officers collect from.</li>
+    <li><b>Your staff list</b>: names, emails, mobile numbers, roles and branches.</li>
+  </ol>
+  <div class="tip"><strong>Want to look around first?</strong>The desktop app includes a demo workspace full of sample data, separate from your real data. See Chapter 17.</div>
+</section>
+
+<!-- ───────────── 3 ───────────── -->
+<section class="chapter">
+  <div class="kicker">Chapter 3 · Step by step</div>
+  <h1>Install EMS</h1>
+  <ol class="steps">
+    <li>Copy <code>EMS-Setup-0.1.0.exe</code> to the computer and double-click it.</li>
+    <li>If Windows shows <span class="ui">Windows protected your PC</span>, click <span class="ui">More info</span>, then <span class="ui">Run anyway</span>. This appears because the app is new to Windows. It is safe.</li>
+    <li>Follow the installer. Keep the suggested folder unless you have a reason to change it, then click <span class="ui">Install</span>.</li>
+    <li>When it finishes, EMS opens. Next time, open it from the <b>EMS</b> shortcut on the desktop or the Start menu.</li>
+  </ol>
+  <div class="note"><strong>Where your data lives</strong>By default EMS keeps its database on this computer, in <code>%APPDATA%\EMS\data</code>. Back it up regularly (Chapter 18). To use EMS on several computers, see Chapter 7.</div>
+</section>
+
+<!-- ───────────── 4 ───────────── -->
+<section class="chapter">
+  <div class="kicker">Chapter 4 · Step by step</div>
+  <h1>Activate your licence</h1>
+  <p>The first screen asks for your licence. Only the head office computer needs one. Staff on other computers connect to it instead (Chapter 7).</p>
+  <figure><img src="img/01-licence.png"><figcaption>The Activate screen. “This computer’s code” is on the right.</figcaption></figure>
+  <ol class="steps">
+    <li>Open the licence code Entacrest sent you. Copy all of it, from <code>EMS-</code> to the end, including any line breaks.</li>
+    <li>Paste it into the <span class="ui">Licence code</span> box.</li>
+    <li>Click <span class="ui">Activate</span>.</li>
+  </ol>
+  <div class="tip"><strong>Entacrest asked for “this computer’s code”?</strong>Click <span class="ui">Copy</span> next to it and send it to them. Some licences are tied to one computer.</div>
+  <div class="warn"><strong>Staff installing on their own computer?</strong>Don’t enter a licence. Click <span class="ui">Connect to your organisation</span> in the grey box instead (Chapter 7).</div>
+</section>
+
+<!-- ───────────── 5 ───────────── -->
+<section class="chapter">
+  <div class="kicker">Chapter 5 · Step by step</div>
+  <h1>Set up your business and sign in</h1>
+  <h2>A. Create the business and the MD’s account</h2>
+  <ol class="steps">
+    <li>Under <b>The business</b>, enter the business name (printed on reports and receipts), head office address and phone. Email is optional.</li>
+    <li>Under <b>Managing director’s account</b>, enter the MD’s first and last name, work email and mobile number. Sign-in codes go to this number.</li>
+    <li>Choose a password and type it again. The ticks turn green when it is strong enough.</li>
+    <li>Click <span class="ui">Finish set-up</span>.</li>
+  </ol>
+  <figure class="narrow"><img src="img/02-setup.png"><figcaption>Set up EMS. You can change the business details later in Settings.</figcaption></figure>
+</section>
+
+<section class="chapter">
+  <h2 style="margin-top:0">B. Sign in for the first time</h2>
+  <figure class="ready"><img src="img/03-ready.png"><figcaption>Set-up complete.</figcaption></figure>
+  <ol class="steps">
+    <li>Click <span class="ui">Go to sign in</span>.</li>
+    <li>Enter the MD’s work email and password, then press <b>Enter</b>.</li>
+    <li>EMS asks for a 6-digit code sent by SMS. <b>Until you connect an SMS provider, the code is not texted.</b> Open <span class="path">File → SMS outbox</span> (or press <b>Ctrl+3</b>) to see it.</li>
+    <li>Type the code and press <b>Enter</b>. The code expires after 5 minutes.</li>
+  </ol>
+  <div class="two small">
+    <figure><img src="img/04-signin-code.png"><figcaption>Enter the sign-in code.</figcaption></figure>
+    <figure><img src="img/05-sms-outbox.png"><figcaption>File → SMS outbox shows messages until SMS is connected.</figcaption></figure>
+  </div>
+  <div class="warn"><strong>Before you go live, connect SMS</strong>Customers get receipts, and staff get sign-in codes, by SMS. Ask Entacrest to connect Termii or Africa’s Talking for you. Until then, only this computer can see the outbox.</div>
+</section>
+
+<!-- ───────────── 6 ───────────── -->
+<section class="chapter">
+  <div class="kicker">Chapter 6 · Step by step</div>
+  <h1>Your first week: set-up checklist</h1>
+  <p class="lead">Do these in order. The MD (or an administrator) can do all of them.</p>
+
+  <h2>Step 1 · Add your branches</h2>
+  <p>A <b>Headquarters</b> branch (code 00) already exists. It is where the MD and general manager sit.</p>
+  <ol class="steps">
+    <li>Go to <span class="path">Administration → Branches</span> and click <span class="ui">Add branch</span>.</li>
+    <li>Enter the branch name, a two-digit <b>code</b>, address and phone. The code starts every account number in the branch, so it can’t change once accounts exist.</li>
+    <li>Add each <b>collection area</b> (e.g. Ipaja Market) and click <span class="ui">Add area</span>. Officers and customers are grouped by area.</li>
+    <li>Leave the manager as <span class="ui">No manager yet</span> for now. Pick them after you add staff.</li>
+    <li>Click <span class="ui">Add branch</span>. Your licence limits how many branches you can add.</li>
+  </ol>
+  <figure><img src="img/06-branch.png"><figcaption>Adding a branch with its collection areas.</figcaption></figure>
+</section>
+
+<section class="chapter">
+  <h2 style="margin-top:0">Step 2 · Add your staff</h2>
+  <ol class="steps">
+    <li>Go to <span class="path">Administration → Staff</span> and click <span class="ui">Add staff member</span>.</li>
+    <li>Enter their name, work email (they sign in with it) and mobile number (their codes go there).</li>
+    <li>Choose their <b>Role</b> and <b>Branch</b>.</li>
+    <li>Under <b>Permissions</b>, tick what this person may do. The list only shows what their role allows. Use <span class="ui">Select all</span> or <span class="ui">Clear</span> for speed.</li>
+    <li>Click <span class="ui">Add staff member</span>. EMS shows a <b>temporary password</b>, such as <code>Mango-River-4821</code>. Give it to them privately.</li>
+  </ol>
+  <figure><img src="img/11-add-staff.png"><figcaption>Adding a staff member and choosing their permissions.</figcaption></figure>
+  <div class="note"><strong>Temporary passwords expire after 72 hours</strong>The staff member must sign in and choose their own password within 3 days. If they miss it, open their record in Staff and reset the password to get a new one.</div>
+  <p>Then go back to <b>Branches</b> and choose each branch’s manager.</p>
+</section>
+
+<section class="chapter">
+  <h2 style="margin-top:0">Step 3 · Create your products</h2>
+  <h3>Thrift plans</h3>
+  <p><span class="path">Lending and savings → Thrift plans</span>. For each plan, set the contribution amount and how often it is paid (daily, weekly, monthly), the cycle length, the commission EMS takes, and whether customers may withdraw before the cycle ends.</p>
+  <h3>Loan products</h3>
+  <p><span class="path">Lending and savings → Loan products</span>. For each product, set:</p>
+  <ul>
+    <li><b>Interest</b>: a rate <b>per month</b> or <b>for the whole loan</b> (overall).</li>
+    <li><b>Processing fee</b>: a percentage of the loan, a flat amount, or none.</li>
+    <li><b>Late payment fee</b>: a percentage or a flat amount, charged <b>daily</b> on overdue instalments.</li>
+    <li>The amount range, tenor and repayment frequency, and whether it needs guarantors or collateral.</li>
+  </ul>
+
+  <h2>Step 4 · Check your settings</h2>
+  <p>Go to <span class="path">Administration → Settings</span>. Every change is recorded in the audit log.</p>
+  <table>
+    <tr><th style="width:30%">Tab</th><th>What to set</th></tr>
+    <tr><td>Business details</td><td>Name, address and phone shown on reports and receipts.</td></tr>
+    <tr><td>Working days and holidays</td><td>Days you open, and public holidays. Repayment dates skip days you are closed.</td></tr>
+    <tr><td>Limits</td><td>Amounts above which withdrawals and transfers need a manager’s approval, and other limits.</td></tr>
+    <tr><td>Transaction charges</td><td>Withdrawal charges for savings and target savings (see below).</td></tr>
+    <tr><td>Account numbers</td><td>How account numbers are formed.</td></tr>
+    <tr><td>SMS messages</td><td>The wording of texts customers receive.</td></tr>
+    <tr><td>What each role allows</td><td>The most any person in each role may be given.</td></tr>
+  </table>
+</section>
+
+<section class="chapter">
+  <h3 style="margin-top:0">Transaction charges</h3>
+  <p>Charge customers when they withdraw from a <b>savings</b> or <b>target savings</b> account.</p>
+  <ol class="steps">
+    <li>Open the <span class="ui">Transaction charges</span> tab.</li>
+    <li>For each account type, pick <span class="ui">No charge</span>, <span class="ui">Percentage of the amount</span> (with an optional <b>At most</b> cap) or a flat amount.</li>
+    <li>Check the example under the fields, then click <span class="ui">Save charges</span>.</li>
+  </ol>
+  <figure><img src="img/12-charges.png"><figcaption>A 1% charge on savings withdrawals: withdrawing ₦10,000 takes ₦10,100 from the account.</figcaption></figure>
+  <p>The charge appears on the statement as a separate <b>Withdrawal charge</b> entry and counts as income. If a withdrawal is reversed, its charge is refunded. New charges apply to withdrawals from then on.</p>
+</section>
+
+<!-- ───────────── 7 ───────────── -->
+<section class="chapter">
+  <div class="kicker">Chapter 7</div>
+  <h1>Using EMS on several computers</h1>
+  <p class="lead">All staff must work on the <b>same</b> data. Choose one of these set-ups. Only the head office computer needs a licence.</p>
+
+  <h2>Option A · One office, shared over the office network</h2>
+  <p>Best when everyone is in the same building on the same Wi-Fi or network.</p>
+  <p><b>On the head office computer (the one with the licence):</b></p>
+  <ol class="steps">
+    <li>Open <span class="path">File → Share on office network</span> and turn it on.</li>
+    <li>Open <span class="path">File → Office network address…</span> and write down the address shown (for example <code>http://192.168.1.20:47821</code>).</li>
+    <li>If Windows Firewall asks, allow EMS on <b>private</b> networks.</li>
+    <li>Keep this computer switched on while staff work.</li>
+  </ol>
+  <p><b>On each staff computer:</b></p>
+  <ol class="steps">
+    <li>Install EMS (Chapter 3).</li>
+    <li>On the Activate screen, click <span class="ui">Connect to your organisation</span>. Do not enter a licence.</li>
+    <li>Choose <span class="ui">On my organisation’s EMS server</span>, enter the address from above and click <span class="ui">Test connection</span>.</li>
+    <li>Click <span class="ui">Save and restart EMS</span>, then sign in with your own email and password.</li>
+  </ol>
+
+  <h2>Option B · Several branches, using Supabase (online database)</h2>
+  <p>Best when branches are in different places. Every computer connects to the same online database.</p>
+  <ol class="steps">
+    <li>Create a free project at <b>supabase.com</b>. Choose a <b>database password</b> using letters and numbers only, and keep it safe.</li>
+    <li>In Supabase, click <span class="ui">Connect</span>, choose <b>Session pooler</b> and copy the connection string. Replace <code>[YOUR-PASSWORD]</code> with your database password (not your Supabase account password).</li>
+    <li>In EMS on the head office computer, open <span class="path">File → Connection settings…</span> and choose <span class="ui">In a Supabase (PostgreSQL) database</span>.</li>
+    <li>Paste the string and click <span class="ui">Test connection</span>. To move your existing data, tick the option to copy this computer’s data into the new (empty) database.</li>
+    <li>Click <span class="ui">Save and restart EMS</span>. The first start creates the tables and can take a minute.</li>
+  </ol>
+  <div class="warn"><strong>Keep the connection string secret</strong>It contains your database password. Anyone who has it can read your data. If it is ever shared by mistake, reset the database password in Supabase.</div>
+  <div class="note"><strong>Only one EMS server may use a database at a time.</strong>For many branches, the simplest set-up is to host EMS online (Option C) and let everyone connect to it.</div>
+
+  <h2>Option C · Hosted online (web)</h2>
+  <p>Entacrest can host EMS on the internet (for example on Render) with your Supabase database. Staff then open it in a browser, or connect the desktop app to it with <span class="ui">On my organisation’s EMS server</span> and the web address.</p>
+</section>
+
+<!-- ───────────── 8 ───────────── -->
+<section class="chapter">
+  <div class="kicker">Chapter 8</div>
+  <h1>Customers and accounts</h1>
+  <figure><img src="img/10-dashboard.png"><figcaption>The Dashboard: today’s collections, deposits, loans and income at a glance. Use the Branch picker at the top to switch branches.</figcaption></figure>
+  <h2>Register a customer</h2>
+  <ol class="steps">
+    <li>Go to <span class="path">Customers</span> and click <span class="ui">Add customer</span>. (Officers can also register customers in the field app.)</li>
+    <li>Enter their details: name, phone, address, area, ID (e.g. NIN or BVN), photo and next of kin.</li>
+    <li>Save. New customers may need a manager’s approval before accounts are opened, depending on your set-up.</li>
+  </ol>
+  <h2>Open an account</h2>
+  <ol class="steps">
+    <li>On the customer’s page, click <span class="ui">Open account</span> and choose <b>Savings</b>, <b>Target savings</b> or <b>Thrift</b> (choose the thrift plan).</li>
+    <li>The account number is created automatically. It starts with the branch code.</li>
+  </ol>
+</section>
+
+<section class="chapter">
+  <figure><img src="img/13-customer.png"><figcaption>A customer’s page lists their accounts, loans and history.</figcaption></figure>
+  <h2>Account page</h2>
+  <p>Open any account to see its balance and statement. From here you can:</p>
+  <ul>
+    <li><span class="ui">Post transaction</span>: deposit or withdraw at the counter (Chapter 9).</li>
+    <li><span class="ui">Transfer</span>: move money to another account (Chapter 10).</li>
+    <li><span class="ui">Export statement PDF</span> or <span class="ui">CSV</span>: choose dates first.</li>
+    <li><span class="ui">Freeze</span> the account, or <span class="ui">Request closure</span> (closure needs approval).</li>
+  </ul>
+</section>
+
+<!-- ───────────── 9 ───────────── -->
+<section class="chapter">
+  <div class="kicker">Chapter 9</div>
+  <h1>Deposits, withdrawals and charges</h1>
+  <p class="lead">For customers who come to the counter. Money collected in the market is recorded in the field app instead (Chapter 12).</p>
+  <ol class="steps">
+    <li>Open the customer’s account and click <span class="ui">Post transaction</span>. (Or use <span class="path">Operations → Transactions → Post transaction</span> and search for the account.)</li>
+    <li>Choose <span class="ui">Deposit</span> or <span class="ui">Withdrawal</span>.</li>
+    <li>Enter the amount and choose <span class="ui">Cash</span> or <span class="ui">Transfer</span>. Add a note if useful.</li>
+    <li>For withdrawals, check the <b>charge</b> EMS shows before posting.</li>
+    <li>Click <span class="ui">Post deposit</span> or <span class="ui">Post withdrawal</span>. The customer gets an SMS receipt.</li>
+  </ol>
+  <figure><img src="img/14-counter.png"><figcaption>Posting a withdrawal at the counter.</figcaption></figure>
+  <div class="note"><strong>Large withdrawals</strong>If the amount is above the limit in Settings, it is not paid immediately. It goes to <b>Approvals</b> and is paid when a manager approves (Chapter 14).</div>
+  <p>EMS won’t let an account go below zero, including the charge.</p>
+</section>
+
+<!-- ───────────── 10 ───────────── -->
+<section class="chapter">
+  <div class="kicker">Chapter 10</div>
+  <h1>Transfers between accounts</h1>
+  <p class="lead">Move money without cash changing hands: between a customer’s own accounts, or from one customer to another.</p>
+  <ol class="steps">
+    <li>Open the account the money comes <b>from</b> and click <span class="ui">Transfer</span>. (Or use <span class="ui">Transfer</span> on the Transactions page.)</li>
+    <li>Choose <span class="ui">Customer’s other account</span> and pick it from the list, <b>or</b> choose <span class="ui">Another customer</span> and type their account number. EMS shows their name so you can check it’s the right person.</li>
+    <li>Enter the amount and a note (e.g. “Rent for October”).</li>
+    <li>Click <span class="ui">Transfer</span>.</li>
+  </ol>
+  <figure><img src="img/15-transfer.png"><figcaption>Transfer between accounts.</figcaption></figure>
+  <ul>
+    <li>Both sides appear on their statements: <b>Transfer out</b> and <b>Transfer in</b>.</li>
+    <li>Transferring <b>into a loan account</b> is recorded as a <b>loan repayment</b>. You can’t pay more than the loan still owes.</li>
+    <li>Transfers above the limit go to <b>Approvals</b> first.</li>
+    <li>Frozen or closed accounts can’t send or receive.</li>
+    <li>Reversing a transfer reverses both sides together.</li>
+  </ul>
+</section>
+
+<!-- ───────────── 11 ───────────── -->
+<section class="chapter">
+  <div class="kicker">Chapter 11</div>
+  <h1>Thrift (ajo/esusu) savings</h1>
+  <p>Customers on a thrift plan contribute a fixed amount on a schedule, usually collected by an officer in the field. EMS takes the plan’s commission each cycle.</p>
+  <h2>Withdrawing from a thrift account</h2>
+  <ol class="steps">
+    <li>Open the thrift account and click <span class="ui">Post transaction</span>, then <span class="ui">Withdrawal</span>.</li>
+    <li><b>Cycle complete:</b> withdrawing the full balance is recorded as a <b>thrift payout</b>, the customer gets an SMS, and a new cycle starts.</li>
+    <li><b>Cycle not complete:</b> allowed only if the plan permits early withdrawals. Otherwise EMS explains that the plan doesn’t allow withdrawals before the cycle ends.</li>
+  </ol>
+  <p>Thrift withdrawals have no transaction charge. Large ones still need approval.</p>
+</section>
+
+<!-- ───────────── 12 ───────────── -->
+<section class="chapter">
+  <div class="kicker">Chapter 12</div>
+  <h1>Field collections and remittance</h1>
+  <h2>For account officers: the field app</h2>
+  <p>Officers use a phone. In the desktop app it opens from <span class="path">File → Field app</span>; online, it is the <code>/field</code> page of your EMS address.</p>
+  <ol class="steps">
+    <li>Sign in with email, password and the SMS code.</li>
+    <li>The first time, choose a <b>6-digit PIN</b> and type it again. Afterwards, the PIN is all you need to open the app.</li>
+    <li><span class="ui">Today</span> lists the customers to visit, grouped by area, with what each should pay and any arrears.</li>
+    <li>Tap a customer (or use <span class="ui">Collect</span>), enter the amount and save. The customer gets an SMS.</li>
+    <li>No network? Keep collecting. Entries are saved on the phone and sent when the network returns. The top badge shows <span class="ui">All synced</span> when everything is sent.</li>
+    <li>At the end of the day, open <span class="ui">End of day</span>, check the totals and submit. Then hand the cash to the accountant.</li>
+  </ol>
+  <div class="two">
+    <figure><img src="img/21-field-pin.png" style="width:auto;height:95mm;margin:0 auto"><figcaption>Setting up your 6-digit PIN.</figcaption></figure>
+    <figure><img src="img/22-field-today.png" style="width:auto;height:95mm;margin:0 auto"><figcaption>Today: customers to visit and what’s been collected.</figcaption></figure>
+  </div>
+</section>
+
+<section class="chapter">
+  <h2 style="margin-top:0">For the accountant: remittance</h2>
+  <ol class="steps">
+    <li>Go to <span class="path">Operations → Remittance</span> and pick the date.</li>
+    <li>Each officer shows the cash they are expected to hand in. Transfers are listed but not counted.</li>
+    <li>Count the officer’s cash and click <span class="ui">Count cash</span>. Enter what you counted.</li>
+    <li>EMS shows any <b>variance</b> (shortage or excess). Confirm it.</li>
+  </ol>
+  <figure><img src="img/20-remittance.png"><figcaption>Remittance: counting each officer’s cash.</figcaption></figure>
+</section>
+
+<!-- ───────────── 13 ───────────── -->
+<section class="chapter">
+  <div class="kicker">Chapter 13</div>
+  <h1>Loans</h1>
+  <h2>The life of a loan</h2>
+  <ol class="steps">
+    <li><b>Apply.</b> Open the customer’s page and click <span class="ui">Apply for a loan</span>. Choose the product, amount, tenor and purpose. Add guarantors or collateral if the product needs them. EMS shows the repayment schedule before you submit.</li>
+    <li><b>Approve.</b> The application goes to <b>Approvals</b>. A manager approves or rejects it (Chapter 14).</li>
+    <li><b>Pay out.</b> Open the loan under <span class="path">Lending and savings → Loans</span> and click <span class="ui">Pay out loan</span>. The processing fee is taken as set on the product. For buy-now-pay-later products, use <span class="ui">Pay supplier</span> instead.</li>
+    <li><b>Repay.</b> Repayments come from field collections, the counter, or transfers from the customer’s savings. Each repayment settles the oldest instalment first.</li>
+    <li><b>Late fees.</b> Overdue instalments attract the product’s daily late fee. It shows as <b>Penalty</b>.</li>
+    <li><b>Changes.</b> Use <span class="ui">Request extension</span> to give more time (needs approval), or <span class="ui">Top up loan</span> to lend more.</li>
+  </ol>
+  <figure><img src="img/16-loan.png"><figcaption>A loan: outstanding balance, arrears, repayment schedule and terms.</figcaption></figure>
+</section>
+
+<!-- ───────────── 14 ───────────── -->
+<section class="chapter">
+  <div class="kicker">Chapter 14</div>
+  <h1>Approvals</h1>
+  <p class="lead">Sensitive actions need a second person. The number next to <b>Approvals</b> in the menu shows how many are waiting.</p>
+  <p>These go to approval: new customer registrations, loan applications, loan extensions, large withdrawals, large transfers, reversals and account closures.</p>
+  <ol class="steps">
+    <li>Go to <span class="path">Operations → Approvals</span>.</li>
+    <li>Open a request and read the details and the reason given.</li>
+    <li>Click <b>Approve</b> or <b>Reject</b>, with a note if needed. Nothing changes until it is approved.</li>
+  </ol>
+  <div class="note"><strong>You can’t approve your own request.</strong>Someone else with approval permission must do it.</div>
+  <figure><img src="img/17-approvals.png"><figcaption>Approvals waiting for a decision.</figcaption></figure>
+</section>
+
+<!-- ───────────── 15 ───────────── -->
+<section class="chapter">
+  <div class="kicker">Chapter 15</div>
+  <h1>Correcting mistakes</h1>
+  <h2>Reverse a transaction</h2>
+  <p>Use this when a transaction should never have happened (wrong customer, duplicate).</p>
+  <ol class="steps">
+    <li>Open the transaction (from Transactions or a statement) and click <span class="ui">Request reversal</span>.</li>
+    <li>Explain why. Be specific: the approving manager reads it.</li>
+    <li>A manager approves it. The money goes back, charges are refunded, and both sides of a transfer are reversed.</li>
+  </ol>
+
+  <h2>Edit a transaction</h2>
+  <p>Use this when a transaction was real but recorded wrongly (wrong amount, date, payment method or note). <b>Only the MD, general managers and branch managers can edit.</b> Branch managers can edit their own branch only.</p>
+  <ol class="steps">
+    <li>Open the transaction and click <span class="ui">Edit</span>.</li>
+    <li>Change the amount, date and time, Cash/Transfer or note.</li>
+    <li>In <span class="ui">Why is it being changed?</span>, give a clear reason, e.g. “Officer entered ₦5,000 instead of ₦500”.</li>
+    <li>Click <span class="ui">Save changes</span>.</li>
+  </ol>
+  <figure class="narrow"><img src="img/18-edit.png"><figcaption>Editing a transaction.</figcaption></figure>
+  <ul>
+    <li>Every balance after it is recalculated. Editing a loan repayment updates what the loan still owes.</li>
+    <li>The transaction is tagged <b>Edited</b> and shows a <b>Changes</b> history. The edit is also in the audit log.</li>
+    <li>EMS refuses edits that would leave an account short, dates in the future, or amounts on loan payouts (only their date and note can change).</li>
+  </ul>
+</section>
+
+<!-- ───────────── 16 ───────────── -->
+<section class="chapter">
+  <div class="kicker">Chapter 16</div>
+  <h1>Reports and the audit log</h1>
+  <p>Go to <span class="path">Oversight → Reports</span>, choose a report, set the dates and branch, then view it or export it to PDF or CSV.</p>
+  <figure class="narrow"><img src="img/19-reports.png"><figcaption>The Reports page.</figcaption></figure>
+  <table>
+    <tr><th style="width:34%">Report</th><th>Shows</th></tr>
+    <tr><td>Staff performance</td><td>What each officer collected against target.</td></tr>
+    <tr><td>Branch performance</td><td>Branches compared.</td></tr>
+    <tr><td>Transactions by branch and officer</td><td>Every posting, grouped.</td></tr>
+    <tr><td>Income overview</td><td>Interest, fees, penalties, thrift commission and withdrawal charges.</td></tr>
+    <tr><td>Loan portfolio / Loan summary</td><td>Money out, repaid and outstanding.</td></tr>
+    <tr><td>Defaulters / Loans overdue</td><td>Who is behind and by how much.</td></tr>
+    <tr><td>Account types with balances</td><td>Total held in each account type.</td></tr>
+    <tr><td>Dormant accounts / Closed accounts</td><td>Accounts with no recent activity, or closed.</td></tr>
+    <tr><td>Statement of account</td><td>One account’s statement for any period.</td></tr>
+  </table>
+  <h2>Audit log</h2>
+  <p><span class="path">Oversight → Audit log</span> records who did what and when: sign-ins, postings, approvals, edits and settings changes. Nobody can delete entries.</p>
+</section>
+
+<!-- ───────────── 17 & 18 ───────────── -->
+<section class="chapter">
+  <div class="kicker">Chapter 17</div>
+  <h1>Practising with the demo workspace</h1>
+  <p>The desktop app includes a <b>demo workspace</b> with sample branches, staff, customers and loans. It is completely separate from your real data, so it is ideal for training new staff.</p>
+  <ol class="steps">
+    <li>Open <span class="path">File → Demo workspace → Demo back office</span> (or <span class="ui">Demo field app</span>).</li>
+    <li>Sign in with any demo staff email, e.g. <code>md@ems.ng</code>, <code>manager@ems.ng</code>, <code>cashier@ems.ng</code>, <code>accountant@ems.ng</code> or <code>officer@ems.ng</code>.</li>
+    <li>Password: <code>Demo@2026</code>. Sign-in code: <code>123456</code>.</li>
+    <li>To start again with fresh sample data, use <span class="path">File → Demo workspace → Reset demo data…</span></li>
+  </ol>
+
+  <div class="kicker" style="margin-top:10mm">Chapter 18</div>
+  <h1>Backups</h1>
+  <p>If your data is on this computer, back it up at least weekly, ideally daily.</p>
+  <ol class="steps">
+    <li>Open <span class="path">File → Back up live data…</span></li>
+    <li>Choose where to save it: a USB drive, or a Google Drive / OneDrive folder.</li>
+    <li>Keep several copies from different dates.</li>
+  </ol>
+  <div class="warn"><strong>Don’t run EMS from a cloud folder</strong>Google Drive and OneDrive are fine for storing backup copies, but EMS’s live database must not be kept in them. To share data between computers, use Chapter 7.</div>
+  <p>If you use Supabase, it keeps its own backups. <span class="path">File → Open data folder</span> shows where local data is kept.</p>
+</section>
+
+<!-- ───────────── 19 ───────────── -->
+<section class="chapter">
+  <div class="kicker">Chapter 19</div>
+  <h1>Troubleshooting</h1>
+  <table>
+    <tr><th style="width:36%">Problem</th><th>What to do</th></tr>
+    <tr><td>I didn’t get my sign-in code</td><td>If SMS isn’t connected yet, the code is in <span class="path">File → SMS outbox</span> on the head office computer. Codes expire after 5 minutes; sign in again for a new one. Check the mobile number on your staff record.</td></tr>
+    <tr><td>I forgot my password</td><td>Ask the MD or general manager to reset it in <b>Staff</b>. You’ll get a new temporary password.</td></tr>
+    <tr><td>My temporary password doesn’t work</td><td>It expires after 72 hours. Ask for it to be reset.</td></tr>
+    <tr><td>A new computer shows the licence screen</td><td>Staff computers don’t need a licence. Click <span class="ui">Connect to your organisation</span> (Chapter 7).</td></tr>
+    <tr><td>“Can’t reach the server” on a staff computer</td><td>Check the head office computer is on, EMS is open and <span class="path">File → Share on office network</span> is on, and both computers are on the same network. Check the address has not changed.</td></tr>
+    <tr><td>“Another EMS server is using this database”</td><td>Only one EMS server may use a Supabase database. Close EMS on the other computer, or connect that computer to the organisation’s server instead.</td></tr>
+    <tr><td>Stuck on “Checking the connection…”</td><td>Use the <b>Session pooler</b> string from Supabase (port 5432), with your database password, not your account password.</td></tr>
+    <tr><td>The licence has expired</td><td>Contact Entacrest to renew. <span class="path">Help → Licence details</span> shows the expiry date.</td></tr>
+    <tr><td>A withdrawal or transfer didn’t go through</td><td>If it was large, it is waiting in <b>Approvals</b>. If the account is frozen, closed or short of funds, EMS says so.</td></tr>
+    <tr><td>I can’t see a menu or button</td><td>Your role or permissions don’t include it. Ask the MD.</td></tr>
+    <tr><td>Windows says “Windows protected your PC”</td><td>Click <span class="ui">More info</span> → <span class="ui">Run anyway</span>.</td></tr>
+  </table>
+  <p>Still stuck? Contact Entacrest support, and include a screenshot of the message you see.</p>
+</section>
+
+<!-- ───────────── 20 ───────────── -->
+<section class="chapter">
+  <div class="kicker">Chapter 20</div>
+  <h1>Roles at a glance</h1>
+  <p>These are typical. The MD chooses each person’s exact permissions when adding them, within what their role allows.</p>
+  <table>
+    <tr><th style="width:24%">Role</th><th>Usually does</th><th style="width:14%">Edit transactions</th></tr>
+    <tr><td>Managing director (MD)</td><td>Everything, across all branches. Sets up the business, staff and settings.</td><td>Yes</td></tr>
+    <tr><td>General manager</td><td>Runs all branches: approvals, reports, staff.</td><td>Yes</td></tr>
+    <tr><td>Branch manager</td><td>Runs one branch: takes and approves loan applications, approves requests and reversals; reviews reports.</td><td>Own branch</td></tr>
+    <tr><td>Administrator</td><td>Branches, staff and settings.</td><td>No</td></tr>
+    <tr><td>Accountant</td><td>Remittance, cash counts, reports.</td><td>No</td></tr>
+    <tr><td>Cashier</td><td>Counter deposits, withdrawals and transfers; pays out approved loans; requests reversals.</td><td>No</td></tr>
+    <tr><td>Account officer</td><td>Registers customers, collects in the field app and follows up loans.</td><td>No</td></tr>
+  </table>
+  <div class="note"><strong>Good practice</strong>Give each person only what their job needs. Everyone signs in as themselves, and never shares passwords or PINs, so the audit log shows who did what.</div>
+</section>
+
+</body>
+</html>
