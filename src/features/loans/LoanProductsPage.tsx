@@ -14,12 +14,7 @@ import { SegmentedControl, Tabs } from '@/components/ui/Tabs'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { useToast } from '@/components/ui/Toast'
 import { useCurrentUser } from '@/features/auth/AuthProvider'
-import {
-  buildSchedule,
-  describeFee,
-  describeInterest,
-  describePenalty,
-} from '@/lib/loans'
+import { buildSchedule, describeFee, describeInterest, describePenalty } from '@/lib/loans'
 import { formatNaira, naira, type Kobo } from '@/lib/money'
 import { hasPermission } from '@/lib/permissions'
 import type {
@@ -137,7 +132,8 @@ export function LoanProductsPage() {
         onRowClick={canManage ? setEditing : undefined}
         density="comfortable"
         empty={{
-          title: kind === 'cash' ? 'No cash loan products yet' : 'No buy now pay later products yet',
+          title:
+            kind === 'cash' ? 'No cash loan products yet' : 'No buy now pay later products yet',
           description: canManage
             ? 'Create one with “New product”.'
             : 'An administrator needs to set up loan products.',
@@ -174,7 +170,8 @@ function ProductDialog({
     minTenor: String(product?.minTenor ?? 8),
     maxTenor: String(product?.maxTenor ?? 24),
     feeType: product?.processingFee.type ?? ('percentage' as FeeRule['type']),
-    feePercent: product?.processingFee.type === 'percentage' ? product.processingFee.percent : '2.00',
+    feePercent:
+      product?.processingFee.type === 'percentage' ? product.processingFee.percent : '2.00',
     penaltyType: product?.penalty.type ?? ('percentage' as PenaltyRule['type']),
     percentPerDay: product?.penalty.type === 'percentage' ? product.penalty.percentPerDay : '1.00',
     graceDays: String(product?.penalty.graceDays ?? 3),
@@ -230,8 +227,10 @@ function ProductDialog({
 
   const submit = async () => {
     const local: Record<string, string> = {}
-    if (!minAmount) local.minAmount = bnpl ? 'Enter the lowest item price.' : 'Enter the smallest amount.'
-    if (!maxAmount) local.maxAmount = bnpl ? 'Enter the highest item price.' : 'Enter the largest amount.'
+    if (!minAmount)
+      local.minAmount = bnpl ? 'Enter the lowest item price.' : 'Enter the smallest amount.'
+    if (!maxAmount)
+      local.maxAmount = bnpl ? 'Enter the highest item price.' : 'Enter the largest amount.'
     if (form.feeType === 'flat' && !feeFlat) local['processingFee.amount'] = 'Enter the fee amount.'
     if (form.penaltyType === 'flat' && !penaltyFlat)
       local['penalty.amountPerDay'] = 'Enter the daily penalty amount.'
@@ -296,7 +295,9 @@ function ProductDialog({
       onClose={onClose}
       dismissible={!busy}
       size="lg"
-      title={product ? `Edit ${product.name}` : `New ${bnpl ? 'buy now pay later' : 'cash loan'} product`}
+      title={
+        product ? `Edit ${product.name}` : `New ${bnpl ? 'buy now pay later' : 'cash loan'} product`
+      }
       description={product ? 'Loans already given keep the terms they were given on.' : undefined}
       footer={
         <>

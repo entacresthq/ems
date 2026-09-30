@@ -36,7 +36,8 @@ export const REPORTS: ReportDefinition[] = [
     key: 'income',
     title: 'Income overview',
     group: 'Transactions and income',
-    description: 'Interest, processing fees, penalties and thrift commissions by branch.',
+    description:
+      'Interest, processing fees, penalties, thrift commissions and withdrawal charges by branch.',
     filters: ['period'],
   },
   {

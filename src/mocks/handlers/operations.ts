@@ -1,11 +1,12 @@
 import { delay, http, HttpResponse } from 'msw'
 import { formatDate, formatDateTime, toLagosIso, todayIso } from '@/lib/dates'
-import { formatNaira, ZERO, type Kobo } from '@/lib/money'
+import { formatNaira, kobo, ZERO, type Kobo } from '@/lib/money'
 import type { CounterPostingRequest, Transaction, TransactionType } from '@/types'
-import { approvesOwnRequests, TRANSACTION_TYPE_LABELS } from '@/types'
+import { approvesOwnRequests, TRANSACTION_EDITOR_ROLES, TRANSACTION_TYPE_LABELS } from '@/types'
 import { commit, db } from '../db'
 import {
   DomainError,
+  editTransaction,
   executeApproval,
   audit,
   largeWithdrawalThreshold,
@@ -15,9 +16,11 @@ import {
   loanForAccount,
   newId,
   post,
+  postWithdrawal,
   releaseRejected,
   remittanceRow,
   staffName,
+  withdrawalChargeOn,
 } from '../domain'
 import { out } from '../serializers'
 import {
@@ -140,8 +143,15 @@ export const operationHandlers = [
     const paymentMethod = body.paymentMethod === 'transfer' ? 'transfer' : 'cash'
     const narration = typeof body.narration === 'string' ? body.narration.trim() : ''
 
-    if (type === 'withdrawal' && amount > account.balance) {
-      return validationError({ amount: [`The balance is only ${formatNaira(account.balance)}.`] })
+    const charge = type === 'withdrawal' ? withdrawalChargeOn(account, amount) : ZERO
+    if (type === 'withdrawal' && amount + charge > account.balance) {
+      return validationError({
+        amount: [
+          charge > 0
+            ? `The balance is only ${formatNaira(account.balance)}. This withdrawal and its ${formatNaira(charge)} charge need ${formatNaira(kobo(amount + charge))}.`
+            : `The balance is only ${formatNaira(account.balance)}.`,
+        ],
+      })
     }
     if (type === 'withdrawal' && account.target?.lockUntilReached) {
       // A locked goal opens once enough is saved or the target date has come.
@@ -182,27 +192,98 @@ export const operationHandlers = [
       )
     }
 
-    const txn = post({
-      account,
-      type,
-      direction: type === 'withdrawal' ? 'debit' : 'credit',
-      amount,
-      channel: 'counter',
-      postedBy: staff,
-      paymentMethod,
-      narration: narration || null,
-    })
+    const posted =
+      type === 'withdrawal'
+        ? postWithdrawal({
+            account,
+            amount,
+            postedBy: staff,
+            paymentMethod,
+            narration: narration || null,
+          })
+        : {
+            withdrawal: post({
+              account,
+              type,
+              direction: 'credit',
+              amount,
+              channel: 'counter',
+              postedBy: staff,
+              paymentMethod,
+              narration: narration || null,
+            }),
+            charge: null,
+          }
+    const txn = posted.withdrawal
     audit(
       staff,
       'transaction.post',
       'transaction',
       txn.id,
-      `${TRANSACTION_TYPE_LABELS[type]} of ${formatNaira(amount)} on ${account.accountNumber} (${txn.reference})${selfApproved ? '. Above the approval limit, approved automatically' : ''}`,
+      `${TRANSACTION_TYPE_LABELS[type]} of ${formatNaira(amount)} on ${account.accountNumber} (${txn.reference})${posted.charge ? ` with a ${formatNaira(posted.charge.amount)} charge` : ''}${selfApproved ? '. Above the approval limit, approved automatically' : ''}`,
     )
     return HttpResponse.json(
-      { status: 'posted', transaction: out.transaction(txn) },
+      {
+        status: 'posted',
+        transaction: out.transaction(txn),
+        charge: posted.charge ? out.transaction(posted.charge) : null,
+      },
       { status: 201 },
     )
+  }),
+
+  // Corrections by the MD or a general manager: amount, date, payment method, note.
+  http.patch(api('/transactions/:id/'), async ({ request, params }) => {
+    await delay()
+    const staff = authenticate(request)
+    if (staff instanceof Response) return staff
+    if (!TRANSACTION_EDITOR_ROLES.includes(staff.role) || !can(staff, 'transactions.edit'))
+      return forbidden('Only the MD and general managers can edit transactions.')
+    const txn = db().transactions.find((t) => t.id === params.id)
+    if (!txn || !inScope(staff, txn)) return notFound()
+    const body = await readBody<Record<string, unknown>>(request)
+    const reason = typeof body.reason === 'string' ? body.reason.trim() : ''
+    if (reason.length < 10)
+      return validationError({ reason: ['Say why it is being changed (at least 10 characters).'] })
+    let amount: Kobo | undefined
+    if (body.amount !== undefined) {
+      amount = parseMoney(body.amount) ?? undefined
+      if (amount === undefined)
+        return validationError({ amount: ['Enter an amount greater than ₦0.'] })
+    }
+    const method = body.paymentMethod
+    if (method !== undefined && method !== 'cash' && method !== 'transfer')
+      return validationError({ paymentMethod: ['Choose cash or transfer.'] })
+    try {
+      editTransaction(
+        txn,
+        {
+          amount,
+          createdAt: typeof body.createdAt === 'string' ? body.createdAt : undefined,
+          paymentMethod: method,
+          narration: typeof body.narration === 'string' ? body.narration : undefined,
+        },
+        staff,
+        reason,
+      )
+    } catch (e) {
+      if (e instanceof DomainError)
+        return e.field ? validationError({ [e.field]: [e.message] }) : badRequest(e.message)
+      throw e
+    }
+    const last = txn.edits!.at(-1)!
+    audit(
+      staff,
+      'transaction.edit',
+      'transaction',
+      txn.id,
+      `Edited ${TRANSACTION_TYPE_LABELS[txn.type].toLowerCase()} ${txn.reference} on ${txn.accountNumber}: ${last.changes
+        .map(
+          (c) => `${c.field === 'paymentMethod' ? 'payment method' : c.field} ${c.from} → ${c.to}`,
+        )
+        .join('; ')}. Reason: ${reason}`,
+    )
+    return HttpResponse.json(out.transaction(txn))
   }),
 
   http.post(api('/transactions/:id/reversal-request/'), async ({ request, params }) => {

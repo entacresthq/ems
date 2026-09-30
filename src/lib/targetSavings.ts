@@ -34,7 +34,8 @@ export function goalProgress(target: SavingsTarget, balance: Kobo, today: string
   const percent = Math.min(100, Math.round((saved / target.targetAmount) * 1000) / 10)
   const locked = target.lockUntilReached && !reached && daysLeft > 0
   const open = !reached && daysLeft > 0
-  const per = (days: number) => (open ? kobo(Math.ceil(remaining / Math.max(1, Math.ceil(daysLeft / days)))) : null)
+  const per = (days: number) =>
+    open ? kobo(Math.ceil(remaining / Math.max(1, Math.ceil(daysLeft / days)))) : null
   return {
     percent,
     saved,

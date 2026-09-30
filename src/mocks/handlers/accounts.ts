@@ -85,7 +85,12 @@ export const accountHandlers = [
       customerId: string
       type: string
       thriftPlanId: string | null
-      target?: { goalName?: unknown; targetAmount?: unknown; targetDate?: unknown; lockUntilReached?: unknown }
+      target?: {
+        goalName?: unknown
+        targetAmount?: unknown
+        targetDate?: unknown
+        lockUntilReached?: unknown
+      }
     }>(request)
     const customer = db().customers.find((c) => c.id === body.customerId)
     if (!customer || !inScope(staff, customer))
@@ -115,9 +120,11 @@ export const accountHandlers = [
       const errors: Record<string, string[]> = {}
       const goalName = typeof body.target?.goalName === 'string' ? body.target.goalName.trim() : ''
       if (goalName.length < 3) errors['target.goalName'] = ['Say what the customer is saving for.']
-      if (goalName.length > 60) errors['target.goalName'] = ['Keep the goal name under 60 characters.']
+      if (goalName.length > 60)
+        errors['target.goalName'] = ['Keep the goal name under 60 characters.']
       const targetAmount = parseMoney(body.target?.targetAmount)
-      if (!targetAmount) errors['target.targetAmount'] = ['Enter the amount the customer wants to save.']
+      if (!targetAmount)
+        errors['target.targetAmount'] = ['Enter the amount the customer wants to save.']
       const targetDate = typeof body.target?.targetDate === 'string' ? body.target.targetDate : ''
       if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate) || Number.isNaN(Date.parse(targetDate)))
         errors['target.targetDate'] = ['Choose the date the customer wants to reach the goal.']

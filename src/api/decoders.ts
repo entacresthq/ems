@@ -1,3 +1,4 @@
+import { decodeCharges, type WireCharges } from '@/lib/charges'
 import { camelToSnake } from '@/lib/case'
 import { parseDecimal, type Kobo } from '@/lib/money'
 import type {
@@ -75,7 +76,11 @@ export const decode = {
     const rolePermissions = Object.fromEntries(
       Object.entries(s.rolePermissions).map(([role, perms]) => [camelToSnake(role), perms]),
     ) as BusinessSettings['rolePermissions']
-    return { ...s, rolePermissions }
+    return {
+      ...s,
+      rolePermissions,
+      transactionCharges: decodeCharges(w.transactionCharges as unknown as WireCharges | undefined),
+    }
   },
   thriftPlan: (w: WireThriftPlan): ThriftPlan => ({
     ...w,
@@ -129,12 +134,9 @@ export type WireLoanProduct = Omit<
   minAmount: string
   maxAmount: string
   processingFee:
-    | { type: 'none' }
-    | { type: 'percentage'; percent: string }
-    | { type: 'flat'; amount: string }
+    { type: 'none' } | { type: 'percentage'; percent: string } | { type: 'flat'; amount: string }
   penalty: { graceDays: number; capPercent: string } & (
-    | { type: 'percentage'; percentPerDay: string }
-    | { type: 'flat'; amountPerDay: string }
+    { type: 'percentage'; percentPerDay: string } | { type: 'flat'; amountPerDay: string }
   )
 }
 

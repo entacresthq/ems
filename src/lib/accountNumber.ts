@@ -38,7 +38,8 @@ export function formatAccountNumber(f: AccountNumberFormat, p: AccountNumberPart
 
 /** Length of the numbers this format produces. */
 export function accountNumberLength(f: AccountNumberFormat): number {
-  return formatAccountNumber(f, { branchCode: '00', productCode: '00', year: 2000, serial: 0 }).length
+  return formatAccountNumber(f, { branchCode: '00', productCode: '00', year: 2000, serial: 0 })
+    .length
 }
 
 /** An example for the settings screen. */
@@ -47,14 +48,24 @@ export function previewAccountNumber(f: AccountNumberFormat): string {
 }
 
 /** Why a format can't be used, or null when it is fine. */
-export function validateAccountNumberFormat(f: Partial<AccountNumberFormat> | undefined): string | null {
+export function validateAccountNumberFormat(
+  f: Partial<AccountNumberFormat> | undefined,
+): string | null {
   if (!f) return 'Choose how account numbers are built.'
   if (typeof f.prefix !== 'string' || !/^[A-Za-z0-9]{0,4}$/.test(f.prefix))
     return 'The prefix can have up to 4 letters or digits.'
-  if (typeof f.includeBranch !== 'boolean' || typeof f.includeProduct !== 'boolean' || typeof f.includeYear !== 'boolean')
+  if (
+    typeof f.includeBranch !== 'boolean' ||
+    typeof f.includeProduct !== 'boolean' ||
+    typeof f.includeYear !== 'boolean'
+  )
     return 'Choose which parts to include.'
   if (!isSeparator(f.separator)) return 'The separator can be a dash or nothing.'
-  if (!Number.isInteger(f.serialLength) || (f.serialLength as number) < 3 || (f.serialLength as number) > 10)
+  if (
+    !Number.isInteger(f.serialLength) ||
+    (f.serialLength as number) < 3 ||
+    (f.serialLength as number) > 10
+  )
     return 'The serial number must have between 3 and 10 digits.'
   if (accountNumberLength(f as AccountNumberFormat) > MAX_ACCOUNT_NUMBER_LENGTH)
     return `Account numbers can be at most ${MAX_ACCOUNT_NUMBER_LENGTH} characters long.`
@@ -93,7 +104,10 @@ export function nextSerial(
   const taken = new Set(existing.map((n) => n.toUpperCase()))
   const max = 10 ** f.serialLength - 1
   while (taken.has(build(serial).toUpperCase())) serial += 1
-  if (serial > max) throw new Error('This account number format has run out of numbers. Add more serial digits in Settings.')
+  if (serial > max)
+    throw new Error(
+      'This account number format has run out of numbers. Add more serial digits in Settings.',
+    )
   return serial
 }
 

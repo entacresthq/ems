@@ -215,7 +215,8 @@ export const loanHandlers = [
       ]
     }
     const isBnpl = product?.kind === 'bnpl'
-    const itemDescription = typeof body.itemDescription === 'string' ? body.itemDescription.trim() : ''
+    const itemDescription =
+      typeof body.itemDescription === 'string' ? body.itemDescription.trim() : ''
     const supplierName = typeof body.supplierName === 'string' ? body.supplierName.trim() : ''
     let purpose = typeof body.purpose === 'string' ? body.purpose.trim() : ''
     if (isBnpl) {
@@ -524,8 +525,7 @@ function validateProduct(
     }
   else if (rawFee.type === 'flat')
     processingFee = { type: 'flat', amount: amount(rawFee.amount, 'processingFee.amount') }
-  else if (rawFee.type !== 'none')
-    errors.processingFee = ['Choose percentage, flat fee or none.']
+  else if (rawFee.type !== 'none') errors.processingFee = ['Choose percentage, flat fee or none.']
   const minTenor = Number(pick('minTenor'))
   const maxTenor = Number(pick('maxTenor'))
   if (!Number.isInteger(minTenor) || minTenor < 1)
@@ -551,7 +551,8 @@ function validateProduct(
       capPercent,
     }
   } else {
-    if (rawPenalty.type !== 'percentage') errors['penalty.type'] = ['Choose percentage or flat fee.']
+    if (rawPenalty.type !== 'percentage')
+      errors['penalty.type'] = ['Choose percentage or flat fee.']
     penalty = {
       type: 'percentage',
       percentPerDay: percent(rawPenalty.percentPerDay, 'penalty.percentPerDay', 5),

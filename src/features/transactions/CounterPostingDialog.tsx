@@ -15,7 +15,8 @@ import { StatusBadge } from '@/components/ui/StatusBadge'
 import { useToast } from '@/components/ui/Toast'
 import { useCurrentUser } from '@/features/auth/AuthProvider'
 import { accountNumberLength, looksLikeAccountNumber } from '@/lib/accountNumber'
-import { formatNaira, kobo, type Kobo } from '@/lib/money'
+import { chargeFor, describeCharge, withdrawalRule } from '@/lib/charges'
+import { formatNaira, kobo, ZERO, type Kobo } from '@/lib/money'
 import {
   ACCOUNT_TYPE_LABELS,
   approvesOwnRequests,
@@ -91,6 +92,13 @@ function PostingForm({ onClose, preset }: { onClose: () => void; preset?: Accoun
   const needsApproval =
     type === 'withdrawal' && amount !== null && amount >= limit && !approvesOwnRequests(user)
 
+  // Withdrawal charge from Settings, shown before posting; the server works it out again.
+  const chargeRule =
+    account && type === 'withdrawal'
+      ? withdrawalRule(settings.data?.transactionCharges, account.type)
+      : null
+  const charge = amount ? chargeFor(amount, chargeRule) : ZERO
+
   const submit = async () => {
     const next: typeof errors = {}
     if (!account) next.account = 'Enter the account number and check the customer name.'
@@ -114,7 +122,9 @@ function PostingForm({ onClose, preset }: { onClose: () => void; preset?: Accoun
       if (result.status === 'posted') {
         toast({
           title: `${TRANSACTION_TYPE_LABELS[type]} posted`,
-          description: `${formatNaira(amount)} · ${result.transaction.reference}. New balance ${formatNaira(result.transaction.balanceAfter)}.`,
+          description: result.charge
+            ? `${formatNaira(amount)} · ${result.transaction.reference}, with a ${formatNaira(result.charge.amount)} charge. New balance ${formatNaira(result.charge.balanceAfter)}.`
+            : `${formatNaira(amount)} · ${result.transaction.reference}. New balance ${formatNaira(result.transaction.balanceAfter)}.`,
         })
       } else {
         toast({
@@ -212,6 +222,22 @@ function PostingForm({ onClose, preset }: { onClose: () => void; preset?: Accoun
           />
         )}
         <MoneyInput label="Amount" value={amount} onChange={setAmount} error={errors.amount} />
+        {chargeRule && chargeRule.type !== 'none' && (
+          <div className="border-rule bg-paper rounded border px-3 py-2 text-sm" aria-live="polite">
+            <p className="flex justify-between gap-3">
+              <span>Withdrawal charge</span>
+              <Money value={charge} className="font-medium" />
+            </p>
+            <p className="flex justify-between gap-3">
+              <span>Taken from the account</span>
+              <Money value={kobo((amount ?? 0) + charge)} className="font-semibold" />
+            </p>
+            <p className="text-ink-2 mt-1 text-xs">
+              {describeCharge(chargeRule, (k) => formatNaira(k, { trimZeroKobo: true }))}. Set in
+              Settings → Transaction charges.
+            </p>
+          </div>
+        )}
         {needsApproval && (
           <Alert tone="warning">
             Withdrawals of {formatNaira(limit)} or more need a manager's approval. Don't pay out

@@ -1,9 +1,5 @@
-import { todayIso, toIsoDate, toLagosIso } from '@/lib/dates'
-import {
-  DEFAULT_ACCOUNT_NUMBER_FORMAT,
-  formatAccountNumber,
-  nextSerial,
-} from '@/lib/accountNumber'
+import { formatDate, formatDateTime, todayIso, toIsoDate, toLagosIso } from '@/lib/dates'
+import { DEFAULT_ACCOUNT_NUMBER_FORMAT, formatAccountNumber, nextSerial } from '@/lib/accountNumber'
 import { buildSchedule, isOpen, respread, weekday, type Calendar } from '@/lib/loans'
 import { formatNaira, kobo, ZERO, type Kobo } from '@/lib/money'
 import type {
@@ -22,7 +18,14 @@ import type {
   TransactionChannel,
   TransactionType,
 } from '@/types'
-import { approvesOwnRequests, ROLE_LABELS } from '@/types'
+import {
+  AMOUNT_EDITABLE_TYPES,
+  approvesOwnRequests,
+  ROLE_LABELS,
+  TRANSACTION_TYPE_LABELS,
+  type TransactionEdit,
+} from '@/types'
+import { chargeFor, withdrawalRule } from '@/lib/charges'
 import { commit, db } from './db'
 import { platform } from './platform'
 import { calendarOf, refreshLoan, type LoanRecord } from './loanState'
@@ -220,6 +223,11 @@ function applyToBalance(
   else if (direction === 'credit') loan.amountPaid = kobo(loan.amountPaid + amount)
   else if (type === 'reversal') loan.amountPaid = kobo(loan.amountPaid - amount)
   // Disbursements and processing fees don't change what is owed after set-up.
+  return settleLoan(account, loan)
+}
+
+/** Work out what is owed, close or reopen the loan to match, and return the balance. */
+function settleLoan(account: Account, loan: LoanRecord): Kobo {
   current(loan)
   if (loan.outstanding <= 0 && loan.status === 'active') {
     loan.status = 'closed'
@@ -250,6 +258,8 @@ export interface PostingInput {
   narration?: string | null
   /** Officer credited with a field collection. */
   officer?: StaffRecord | null
+  /** On a withdrawal charge: the withdrawal it was taken for. */
+  chargedOnId?: string | null
 }
 
 export function post(input: PostingInput): Transaction {
@@ -279,6 +289,7 @@ export function post(input: PostingInput): Transaction {
     location: input.location ?? null,
     idempotencyKey: input.idempotencyKey ?? null,
     narration: input.narration ?? null,
+    ...(input.chargedOnId ? { chargedOnId: input.chargedOnId } : {}),
     createdAt,
   }
   db().transactions.unshift(txn)
@@ -301,8 +312,209 @@ export function reverse(original: Transaction, approver: StaffRecord, reason: st
     narration: `Reversal of ${original.reference}: ${reason}`,
   })
   original.status = 'reversed'
+  // Undoing a withdrawal also refunds what was charged for it.
+  if (original.type === 'withdrawal') {
+    for (const charge of db().transactions) {
+      if (charge.chargedOnId !== original.id || charge.status === 'reversed') continue
+      post({
+        account,
+        type: 'reversal',
+        direction: 'credit',
+        amount: charge.amount,
+        channel: 'system',
+        postedBy: approver,
+        paymentMethod: null,
+        narration: `Refund of charge ${charge.reference} with the reversal of ${original.reference}`,
+      })
+      charge.status = 'reversed'
+    }
+  }
   commit()
   return reversal
+}
+
+/** What a withdrawal of `amount` from this account costs under the current Settings. */
+export function withdrawalChargeOn(account: Account, amount: Kobo): Kobo {
+  return chargeFor(amount, withdrawalRule(db().settings.transactionCharges, account.type))
+}
+
+/**
+ * A customer's withdrawal, with the business's charge (if any) taken as its own
+ * entry so statements show both and income reports can count the charge.
+ * The caller checks the balance covers both.
+ */
+export function postWithdrawal(input: {
+  account: Account
+  amount: Kobo
+  postedBy: StaffRecord
+  paymentMethod: PaymentMethod | null
+  narration: string | null
+}): { withdrawal: Transaction; charge: Transaction | null } {
+  const fee = withdrawalChargeOn(input.account, input.amount)
+  const withdrawal = post({
+    account: input.account,
+    type: 'withdrawal',
+    direction: 'debit',
+    amount: input.amount,
+    channel: 'counter',
+    postedBy: input.postedBy,
+    paymentMethod: input.paymentMethod,
+    narration: input.narration,
+  })
+  const charge =
+    fee > 0
+      ? post({
+          account: input.account,
+          type: 'withdrawal_charge',
+          direction: 'debit',
+          amount: fee,
+          channel: 'counter',
+          postedBy: input.postedBy,
+          paymentMethod: null,
+          narration: `Charge on withdrawal ${withdrawal.reference}`,
+          chargedOnId: withdrawal.id,
+        })
+      : null
+  return { withdrawal, charge }
+}
+
+// ── Corrections ───────────────────────────────────────────────────────────
+
+/**
+ * How a transaction moves its account's running figure: the balance, or for a
+ * loan what is still owed. Mirrors applyToBalance.
+ */
+function effectOf(t: Transaction, account: Account): number {
+  if (account.type !== 'loan') return t.direction === 'credit' ? t.amount : -t.amount
+  if (t.type === 'penalty') return t.amount
+  if (t.type === 'disbursement' || t.type === 'processing_fee') return 0
+  if (t.direction === 'credit') return -t.amount
+  return t.type === 'reversal' ? t.amount : 0
+}
+
+/** Recalculate "balance after" on every entry of an account, oldest first. */
+function restateBalances(account: Account) {
+  const entries = db()
+    .transactions.map((t, i) => ({ t, i }))
+    .filter(({ t }) => t.accountId === account.id)
+    // Same time: keep posting order (the list holds the newest first).
+    .sort((a, b) => a.t.createdAt.localeCompare(b.t.createdAt) || b.i - a.i)
+    .map(({ t }) => t)
+  let running = account.balance - entries.reduce((n, t) => n + effectOf(t, account), 0)
+  for (const t of entries) {
+    running += effectOf(t, account)
+    t.balanceAfter = kobo(running)
+  }
+  account.lastTransactionAt = entries.at(-1)?.createdAt ?? account.lastTransactionAt
+}
+
+export interface TransactionCorrection {
+  amount?: Kobo
+  createdAt?: string
+  paymentMethod?: PaymentMethod
+  narration?: string | null
+}
+
+/**
+ * Correct a posted transaction: amount, date and time, payment method or note.
+ * Only the MD and general managers may (checked by the caller). Balances, loan
+ * figures and every later "balance after" are recalculated, and the change is
+ * kept on the transaction with the reason.
+ */
+export function editTransaction(
+  txn: Transaction,
+  input: TransactionCorrection,
+  editor: StaffRecord,
+  reason: string,
+): Transaction {
+  const account = db().accounts.find((a) => a.id === txn.accountId)
+  if (!account) throw new DomainError('The account for this transaction no longer exists.')
+  if (txn.status === 'reversed') throw new DomainError('A reversed transaction can’t be edited.')
+  if (txn.status === 'pending_reversal')
+    throw new DomainError(
+      'A reversal of this transaction is waiting for approval. Decide it first.',
+    )
+
+  const changes: TransactionEdit['changes'] = []
+
+  if (input.amount !== undefined && input.amount !== txn.amount) {
+    if (!AMOUNT_EDITABLE_TYPES.includes(txn.type))
+      throw new DomainError(
+        `The amount of a ${TRANSACTION_TYPE_LABELS[txn.type].toLowerCase()} follows the loan’s terms or the original entry, so it can’t be edited. You can still change the date or note.`,
+        'amount',
+      )
+    if (input.amount <= 0) throw new DomainError('Enter an amount greater than ₦0.', 'amount')
+    const delta = input.amount - txn.amount
+    const loan = account.type === 'loan' ? db().loans.find((l) => l.accountId === account.id) : null
+    if (account.type !== 'loan') {
+      const next = account.balance + (txn.direction === 'credit' ? delta : -delta)
+      if (next < 0)
+        throw new DomainError(
+          `That would leave the account short by ${formatNaira(kobo(-next))}. The balance is ${formatNaira(account.balance)}.`,
+          'amount',
+        )
+      account.balance = kobo(next)
+    } else if (loan) {
+      if (txn.type === 'loan_repayment' && delta > loan.outstanding)
+        throw new DomainError(
+          `That is more than the ${formatNaira(loan.outstanding)} left on the loan.`,
+          'amount',
+        )
+      if (txn.type === 'penalty') loan.penaltiesCharged = kobo(loan.penaltiesCharged + delta)
+      else if (txn.direction === 'credit') loan.amountPaid = kobo(loan.amountPaid + delta)
+      else if (txn.type === 'reversal') loan.amountPaid = kobo(loan.amountPaid - delta)
+      settleLoan(account, loan)
+    }
+    changes.push({ field: 'amount', from: formatNaira(txn.amount), to: formatNaira(input.amount) })
+    txn.amount = input.amount
+  }
+
+  if (input.createdAt !== undefined) {
+    const when = new Date(input.createdAt)
+    if (Number.isNaN(when.getTime()))
+      throw new DomainError('Enter a valid date and time.', 'createdAt')
+    const next = toLagosIso(when)
+    if (next !== txn.createdAt) {
+      if (when.getTime() > Date.now() + 5 * 60_000)
+        throw new DomainError('The date can’t be in the future.', 'createdAt')
+      if (when.getTime() < Date.parse(account.openedAt))
+        throw new DomainError(
+          `The account was opened on ${formatDate(account.openedAt)}; the date can’t be earlier.`,
+          'createdAt',
+        )
+      changes.push({ field: 'date', from: formatDateTime(txn.createdAt), to: formatDateTime(next) })
+      txn.createdAt = next
+    }
+  }
+
+  if (input.paymentMethod !== undefined && input.paymentMethod !== txn.paymentMethod) {
+    if (txn.paymentMethod === null)
+      throw new DomainError('This transaction has no payment method to change.', 'paymentMethod')
+    const label = (m: PaymentMethod) => (m === 'cash' ? 'Cash' : 'Transfer')
+    changes.push({
+      field: 'paymentMethod',
+      from: label(txn.paymentMethod),
+      to: label(input.paymentMethod),
+    })
+    txn.paymentMethod = input.paymentMethod
+  }
+
+  if (input.narration !== undefined) {
+    const note = input.narration?.trim() || null
+    if (note !== txn.narration) {
+      changes.push({ field: 'note', from: txn.narration ?? '(none)', to: note ?? '(none)' })
+      txn.narration = note
+    }
+  }
+
+  if (!changes.length) throw new DomainError('Nothing was changed.')
+  txn.edits = [
+    ...(txn.edits ?? []),
+    { at: toLagosIso(), byName: staffName(editor), reason, changes },
+  ]
+  restateBalances(account)
+  commit()
+  return txn
 }
 
 // ── Accounts ──────────────────────────────────────────────────────────────
@@ -681,15 +893,17 @@ export function executeApproval(approval: ApprovalRecord, approver: StaffRecord)
       const posting = approval.payload.posting
       const account = data.accounts.find((a) => a.id === posting?.accountId)
       if (!posting || !account) throw new DomainError('The account no longer exists.')
-      if (account.balance < posting.amount)
-        throw new DomainError('The balance is now lower than the withdrawal amount.')
+      const fee = withdrawalChargeOn(account, posting.amount)
+      if (account.balance < posting.amount + fee)
+        throw new DomainError(
+          fee > 0
+            ? `The balance is now lower than the withdrawal and its ${formatNaira(fee)} charge.`
+            : 'The balance is now lower than the withdrawal amount.',
+        )
       const requester = data.staff.find((s) => s.id === approval.requestedById) ?? approver
-      post({
+      postWithdrawal({
         account,
-        type: 'withdrawal',
-        direction: 'debit',
         amount: posting.amount,
-        channel: 'counter',
         postedBy: requester,
         paymentMethod: posting.paymentMethod,
         narration: posting.narration || null,

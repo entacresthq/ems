@@ -45,7 +45,9 @@ describe('loan lifecycle', () => {
   it('applies, approves, pays out, collects and extends', { timeout: 20_000 }, async () => {
     const manager = as('manager@ems.ng')
     const customer = eligibleCustomer(manager.branchId!)
-    const product = db().loanProducts.find((p) => p.kind === 'cash' && p.repaymentFrequency === 'weekly')!
+    const product = db().loanProducts.find(
+      (p) => p.kind === 'cash' && p.repaymentFrequency === 'weekly',
+    )!
 
     const loan = await loansApi.apply({
       customerId: customer.id,
@@ -107,7 +109,9 @@ describe('loan lifecycle', () => {
 
   it('enforces lending rules', async () => {
     const manager = as('manager@ems.ng')
-    const product = db().loanProducts.find((p) => p.kind === 'cash' && p.repaymentFrequency === 'daily')!
+    const product = db().loanProducts.find(
+      (p) => p.kind === 'cash' && p.repaymentFrequency === 'daily',
+    )!
     const borrower = db().loans.find(
       (l) => l.status === 'active' && l.branchId === manager.branchId,
     )!
@@ -190,9 +194,7 @@ describe('loan product options', () => {
 
   it('rejects a flat fee with no amount', async () => {
     const e = await apiError(
-      loanProductsApi.create(
-        productInput({ processingFee: { type: 'flat', amount: 0 as never } }),
-      ),
+      loanProductsApi.create(productInput({ processingFee: { type: 'flat', amount: 0 as never } })),
     )
     expect(e.fieldErrors['processingFee.amount']?.[0]).toMatch(/amount/)
   })

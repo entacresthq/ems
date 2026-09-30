@@ -1,3 +1,4 @@
+import { encodeCharges, NO_CHARGES } from '@/lib/charges'
 import type { JsonBodyType } from 'msw'
 import { toDecimal, type Kobo } from '@/lib/money'
 import type {
@@ -80,7 +81,10 @@ export const out = {
       },
       ['minAmount', 'maxAmount'],
     ),
-  settings: (s: BusinessSettings) => serialize(s, ['largeWithdrawalThreshold']),
+  settings: (s: BusinessSettings) =>
+    serialize({ ...s, transactionCharges: encodeCharges(s.transactionCharges ?? NO_CHARGES) }, [
+      'largeWithdrawalThreshold',
+    ]),
   thriftPlan: (p: ThriftPlan) =>
     serialize(
       {

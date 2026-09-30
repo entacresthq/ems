@@ -311,6 +311,7 @@ function AccountantDashboard({ d }: { d: Dashboard }) {
                   ['Processing fees', 'fees'],
                   ['Penalties', 'penalties'],
                   ['Thrift commissions', 'commissions'],
+                  ['Withdrawal charges', 'charges'],
                 ] as const
               ).map(([label, k]) => (
                 <tr key={k} className="border-rule border-t">

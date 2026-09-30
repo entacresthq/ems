@@ -18,6 +18,8 @@ export interface IncomeFigures {
   fees: Kobo
   penalties: Kobo
   commissions: Kobo
+  /** Withdrawal charges from savings and target savings. */
+  charges: Kobo
   total: Kobo
 }
 

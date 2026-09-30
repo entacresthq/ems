@@ -163,7 +163,12 @@ export interface CounterPostingRequest {
 
 /** Counter postings either post at once or, for large withdrawals, wait for approval. */
 export type CounterPostingResponse =
-  | { status: 'posted'; transaction: Transaction }
+  | {
+      status: 'posted'
+      transaction: Transaction
+      /** The withdrawal charge taken with it, if Settings set one. */
+      charge: Transaction | null
+    }
   | { status: 'pending_approval'; approval: Approval }
 
 export type { ListParams }

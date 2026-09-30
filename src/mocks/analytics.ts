@@ -118,6 +118,8 @@ export interface Income {
   fees: Kobo
   penalties: Kobo
   commissions: Kobo
+  /** Withdrawal charges from savings and target savings. */
+  charges: Kobo
   total: Kobo
 }
 
@@ -149,12 +151,14 @@ export function incomeFor(scope: Scope, from: string, to: string): Income {
   const fees = of('processing_fee')
   const penalties = of('penalty')
   const commissions = of('thrift_commission')
+  const charges = of('withdrawal_charge')
   return {
     interest,
     fees,
     penalties,
     commissions,
-    total: kobo(interest + fees + penalties + commissions),
+    charges,
+    total: kobo(interest + fees + penalties + commissions + charges),
   }
 }
 
@@ -163,6 +167,7 @@ export const incomeJson = (i: Income) => ({
   fees: toDecimal(i.fees),
   penalties: toDecimal(i.penalties),
   commissions: toDecimal(i.commissions),
+  charges: toDecimal(i.charges),
   total: toDecimal(i.total),
 })
 

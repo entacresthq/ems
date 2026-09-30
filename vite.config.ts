@@ -53,8 +53,10 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
-    // The mock database reset is slow when every file runs in parallel.
+    // The mock database reset is slow when every file runs in parallel, so run a
+    // few files at a time and give each test room.
     testTimeout: 20_000,
+    maxWorkers: 4,
     env: {
       VITE_API_BASE_URL: 'http://localhost:3000/api/v1',
       VITE_USE_MOCKS: 'true',

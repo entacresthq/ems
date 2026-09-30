@@ -561,7 +561,10 @@ function ExtendDialog({ loan, onClose }: { loan: LoanDetail; onClose: () => void
       toast(
         approval.status === 'approved'
           ? { title: 'Loan extended', description: `${extra} more installments were added.` }
-          : { title: 'Extension requested', description: 'A manager must approve it in Approvals.' },
+          : {
+              title: 'Extension requested',
+              description: 'A manager must approve it in Approvals.',
+            },
       )
       onClose()
     } catch (e) {

@@ -1,12 +1,7 @@
 import type { Kobo } from '@/lib/money'
 import type { GeoPoint, Id, IsoDate, IsoDateTime, ListParams } from './common'
 import type { Guarantor } from './customer'
-import type {
-  InterestBasis,
-  InterestMethod,
-  LoanKind,
-  RepaymentFrequency,
-} from './products'
+import type { InterestBasis, InterestMethod, LoanKind, RepaymentFrequency } from './products'
 
 export type AccountType = 'savings' | 'target' | 'thrift' | 'loan'
 export type AccountStatus = 'active' | 'dormant' | 'frozen' | 'closed'
@@ -157,6 +152,7 @@ export type TransactionType =
   | 'loan_repayment'
   | 'deposit'
   | 'withdrawal'
+  | 'withdrawal_charge'
   | 'disbursement'
   | 'processing_fee'
   | 'penalty'
@@ -167,6 +163,37 @@ export type TransactionType =
 export type TransactionChannel = 'field' | 'counter' | 'system'
 export type PaymentMethod = 'cash' | 'transfer'
 export type TransactionStatus = 'posted' | 'pending_reversal' | 'reversed'
+
+/** One correction to a posted transaction. Values are as shown to people. */
+export interface TransactionEdit {
+  at: IsoDateTime
+  byName: string
+  reason: string
+  changes: { field: 'amount' | 'date' | 'paymentMethod' | 'note'; from: string; to: string }[]
+}
+
+/** What the MD or a general manager may change on a posted transaction. */
+export interface TransactionEditRequest {
+  amount?: Kobo
+  /** New date and time, ISO. */
+  createdAt?: IsoDateTime
+  paymentMethod?: PaymentMethod
+  narration?: string
+  /** Why it is being changed. Kept with the transaction and in the audit log. */
+  reason: string
+}
+
+/** Types whose amount can be corrected. Loan payouts and fees follow the loan terms. */
+export const AMOUNT_EDITABLE_TYPES: readonly TransactionType[] = [
+  'deposit',
+  'withdrawal',
+  'withdrawal_charge',
+  'thrift_contribution',
+  'thrift_commission',
+  'thrift_payout',
+  'loan_repayment',
+  'penalty',
+]
 
 export interface Transaction {
   id: Id
@@ -191,6 +218,10 @@ export interface Transaction {
   idempotencyKey: string | null
   /** Free text from the cashier, e.g. "Paid by son". */
   narration: string | null
+  /** On a withdrawal charge: the withdrawal it was taken for. */
+  chargedOnId?: Id | null
+  /** Corrections made by the MD or a general manager, oldest first. */
+  edits?: TransactionEdit[]
   createdAt: IsoDateTime
 }
 
@@ -211,6 +242,7 @@ export const TRANSACTION_TYPE_LABELS: Record<TransactionType, string> = {
   loan_repayment: 'Loan repayment',
   deposit: 'Deposit',
   withdrawal: 'Withdrawal',
+  withdrawal_charge: 'Withdrawal charge',
   disbursement: 'Loan disbursement',
   processing_fee: 'Processing fee',
   penalty: 'Penalty',

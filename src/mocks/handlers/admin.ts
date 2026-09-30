@@ -6,22 +6,25 @@ import {
 } from '@/lib/accountNumber'
 import { camelToSnake } from '@/lib/case'
 import { toLagosIso } from '@/lib/dates'
-import { formatNaira, parseDecimal } from '@/lib/money'
+import { formatNaira, parseDecimal, type Kobo } from '@/lib/money'
 import {
   HEADQUARTERS_ROLES,
   PERMISSIONS,
   ROLE_LABELS,
   ROLES,
+  TRANSACTION_EDITOR_ROLES,
   type AccountNumberFormat,
   type BusinessSettings,
   type Holiday,
   type Permission,
   type Role,
   type SmsTemplate,
+  type WithdrawalCharge,
 } from '@/types'
 import { normalisePhone } from '@/lib/phone'
 import { PERMISSION_LABELS, roleWithArticle } from '@/lib/permissionCatalogue'
 import { assignPermissions, grantablePermissions, ROLE_PERMISSIONS } from '@/lib/permissions'
+import { describeCharge, NO_CHARGES } from '@/lib/charges'
 import { commit, db, updateStaff } from '../db'
 import { PASSWORD_WORDS } from '../passwordWords'
 import { platform } from '../platform'
@@ -150,6 +153,38 @@ function resolveStaffPermissions(
   return result
 }
 
+/** Check a withdrawal charge from Settings; a string says what is wrong. */
+function parseWithdrawalCharge(
+  raw: Record<string, unknown> | undefined,
+): WithdrawalCharge | string {
+  const type = raw?.type
+  if (type === 'none') return { type: 'none' }
+  const money = (v: unknown) => {
+    try {
+      const amount = parseDecimal(String(v))
+      return amount > 0 ? amount : null
+    } catch {
+      return null
+    }
+  }
+  if (type === 'flat') {
+    const amount = money(raw?.amount)
+    return amount === null ? 'Enter the charge, more than ₦0.' : { type: 'flat', amount }
+  }
+  if (type === 'percentage') {
+    const percent = Number(raw?.percent)
+    if (!Number.isFinite(percent) || percent <= 0 || percent > 20)
+      return 'Enter a percentage above 0 and no more than 20.'
+    let cap: Kobo | null = null
+    if (raw?.cap !== null && raw?.cap !== undefined && raw?.cap !== '') {
+      cap = money(raw.cap)
+      if (cap === null) return 'Enter the most to charge, more than ₦0, or leave it empty.'
+    }
+    return { type: 'percentage', percent: percent.toFixed(2), cap }
+  }
+  return 'Choose no charge, a percentage or a flat fee.'
+}
+
 export const adminHandlers = [
   // ── Settings ───────────────────────────────────────────────────────────
   http.get(api('/settings/'), async ({ request }) => {
@@ -217,7 +252,9 @@ export const adminHandlers = [
       if (problem) errors.accountNumberFormat = [problem]
       else {
         next.accountNumberFormat = normaliseAccountNumberFormat(f as AccountNumberFormat)
-        changed.push(`account number format (e.g. ${previewAccountNumber(next.accountNumberFormat)})`)
+        changed.push(
+          `account number format (e.g. ${previewAccountNumber(next.accountNumberFormat)})`,
+        )
       }
     }
     if ('largeWithdrawalThreshold' in body) {
@@ -229,6 +266,20 @@ export const adminHandlers = [
       } catch {
         errors.largeWithdrawalThreshold = ['Enter an amount greater than ₦0.']
       }
+    }
+    if ('transactionCharges' in body) {
+      const raw = (body.transactionCharges ?? {}) as Record<string, Record<string, unknown>>
+      const charges = { ...(s.transactionCharges ?? NO_CHARGES) }
+      for (const key of ['savingsWithdrawal', 'targetWithdrawal'] as const) {
+        if (!(key in raw)) continue
+        const result = parseWithdrawalCharge(raw[key])
+        if (typeof result === 'string') errors[`transactionCharges.${key}`] = [result]
+        else charges[key] = result
+      }
+      next.transactionCharges = charges
+      changed.push(
+        `withdrawal charges (savings: ${describeCharge(charges.savingsWithdrawal, formatNaira)}; target savings: ${describeCharge(charges.targetWithdrawal, formatNaira)})`,
+      )
     }
     for (const [key, min, max, label] of [
       ['reversalWindowDays', 1, 365, 'reversal window'],
@@ -294,6 +345,10 @@ export const adminHandlers = [
         if (!matrix.admin.includes(p)) matrix.admin.push(p)
       if (!matrix.account_officer.includes('field.collect'))
         matrix.account_officer.push('field.collect')
+      // Editing posted transactions stays with the MD and general managers.
+      for (const role of ROLES)
+        if (!TRANSACTION_EDITOR_ROLES.includes(role))
+          matrix[role] = matrix[role].filter((p) => p !== 'transactions.edit')
       next.rolePermissions = matrix
       // Taking a permission away from a role takes it from everyone in that role.
       // Adding one gives it to nobody until it is assigned to each person.

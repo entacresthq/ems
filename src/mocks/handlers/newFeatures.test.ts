@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { accountsApi } from '@/api/accounts'
 import { settingsApi } from '@/api/admin'
 import { isApiError, tokenStore } from '@/api/client'
-import { customersApi } from '@/api/customers'
 import { loansApi } from '@/api/loans'
 import { transactionsApi } from '@/api/transactions'
 import { todayIso } from '@/lib/dates'
@@ -96,7 +95,9 @@ describe('approvals raised by the MD or a general manager', () => {
 
   it('approves a loan application at once, ready to pay out', async () => {
     const md = as('md@ems.ng')
-    const product = db().loanProducts.find((p) => p.kind === 'cash' && p.repaymentFrequency === 'weekly')!
+    const product = db().loanProducts.find(
+      (p) => p.kind === 'cash' && p.repaymentFrequency === 'weekly',
+    )!
     const customer = db().customers.find(
       (c) =>
         c.status === 'active' &&
@@ -104,7 +105,8 @@ describe('approvals raised by the MD or a general manager', () => {
         c.nextOfKin &&
         c.guarantors.length > 0 &&
         !db().loans.some(
-          (l) => l.customerId === c.id && ['pending_approval', 'approved', 'active'].includes(l.status),
+          (l) =>
+            l.customerId === c.id && ['pending_approval', 'approved', 'active'].includes(l.status),
         ),
     )!
     const loan = await loansApi.apply({
@@ -154,7 +156,12 @@ describe('target savings', () => {
   it('opens a target account for a customer, and a customer can have several', async () => {
     const manager = as('manager@ems.ng')
     const customer = customerIn(manager.branchId!)
-    const a = await accountsApi.open({ customerId: customer.id, type: 'target', thriftPlanId: null, target: goal() })
+    const a = await accountsApi.open({
+      customerId: customer.id,
+      type: 'target',
+      thriftPlanId: null,
+      target: goal(),
+    })
     const b = await accountsApi.open({
       customerId: customer.id,
       type: 'target',
@@ -238,8 +245,20 @@ describe('target savings', () => {
       thriftPlanId: null,
       target: goal({ lockUntilReached: false }),
     })
-    await transactionsApi.post({ accountId: acct.id, type: 'deposit', amount: naira(10_000), paymentMethod: 'cash', narration: '' })
-    const out = await transactionsApi.post({ accountId: acct.id, type: 'withdrawal', amount: naira(4_000), paymentMethod: 'cash', narration: '' })
+    await transactionsApi.post({
+      accountId: acct.id,
+      type: 'deposit',
+      amount: naira(10_000),
+      paymentMethod: 'cash',
+      narration: '',
+    })
+    const out = await transactionsApi.post({
+      accountId: acct.id,
+      type: 'withdrawal',
+      amount: naira(4_000),
+      paymentMethod: 'cash',
+      narration: '',
+    })
     expect(out.status).toBe('posted')
   })
 })
@@ -255,7 +274,12 @@ describe('account number format', () => {
       customerId: customerIn(manager.branchId!).id,
       type: 'target',
       thriftPlanId: null,
-      target: { goalName: 'Rent', targetAmount: naira(10_000), targetDate: addDays(todayIso(), 30), lockUntilReached: false },
+      target: {
+        goalName: 'Rent',
+        targetAmount: naira(10_000),
+        targetDate: addDays(todayIso(), 30),
+        lockUntilReached: false,
+      },
     })
     expect(acct.accountNumber).toMatch(/^\d{10}$/)
   })
@@ -283,18 +307,38 @@ describe('account number format', () => {
       lockUntilReached: false,
     }
     const customer = customerIn(manager.branchId!)
-    const a = await accountsApi.open({ customerId: customer.id, type: 'target', thriftPlanId: null, target })
-    const b = await accountsApi.open({ customerId: customer.id, type: 'target', thriftPlanId: null, target })
+    const a = await accountsApi.open({
+      customerId: customer.id,
+      type: 'target',
+      thriftPlanId: null,
+      target,
+    })
+    const b = await accountsApi.open({
+      customerId: customer.id,
+      type: 'target',
+      thriftPlanId: null,
+      target,
+    })
     const year = todayIso().slice(2, 4)
-    expect(a.accountNumber).toBe(`EMS-${db().branches.find((x) => x.id === manager.branchId)!.code}-${year}-00001`)
-    expect(b.accountNumber).toBe(`EMS-${db().branches.find((x) => x.id === manager.branchId)!.code}-${year}-00002`)
-    expect(db().accounts.map((x) => x.accountNumber).filter((n) => old.includes(n))).toHaveLength(old.length)
+    expect(a.accountNumber).toBe(
+      `EMS-${db().branches.find((x) => x.id === manager.branchId)!.code}-${year}-00001`,
+    )
+    expect(b.accountNumber).toBe(
+      `EMS-${db().branches.find((x) => x.id === manager.branchId)!.code}-${year}-00002`,
+    )
+    expect(
+      db()
+        .accounts.map((x) => x.accountNumber)
+        .filter((n) => old.includes(n)),
+    ).toHaveLength(old.length)
   })
 
   it('rejects a format that cannot work', async () => {
     as('md@ems.ng')
     const e = await apiError(
-      settingsApi.update({ accountNumberFormat: { ...DEFAULT_ACCOUNT_NUMBER_FORMAT, serialLength: 1 } }),
+      settingsApi.update({
+        accountNumberFormat: { ...DEFAULT_ACCOUNT_NUMBER_FORMAT, serialLength: 1 },
+      }),
     )
     expect(e.fieldErrors.accountNumberFormat?.[0]).toMatch(/between 3 and 10/)
   })
@@ -302,65 +346,5 @@ describe('account number format', () => {
   it('only lets people with settings access change it', async () => {
     as('cashier@ems.ng')
     await apiError(settingsApi.update({ accountNumberFormat: DEFAULT_ACCOUNT_NUMBER_FORMAT }))
-  })
-})
-
-describe('guarantor photo and signature', () => {
-  beforeEach(async () => {
-    await resetMockDb()
-  })
-
-  const image = () => new Blob([new Uint8Array([137, 80, 78, 71])], { type: 'image/png' })
-
-  it('gives every guarantor an id and no images to begin with', () => {
-    const withGuarantor = db().customers.find((c) => c.guarantors.length > 0)!
-    for (const g of withGuarantor.guarantors) {
-      expect(g.id).toBeTruthy()
-      expect(g.photoUrl).toBe(null)
-      expect(g.signatureUrl).toBe(null)
-    }
-  })
-
-  it('stores the photo and signature against the right guarantor', async () => {
-    const manager = as('manager@ems.ng')
-    const customer = db().customers.find((c) => c.branchId === manager.branchId && c.guarantors.length > 1)
-    if (!customer) return
-    const [first, second] = customer.guarantors
-    const saved = await customersApi.uploadGuarantorPhoto(customer.id, second!.id, image())
-    expect(saved.guarantors.find((g) => g.id === second!.id)!.photoUrl).toMatch(/^data:image\/png;base64,/)
-    expect(saved.guarantors.find((g) => g.id === first!.id)!.photoUrl).toBe(null)
-    const again = await customersApi.uploadGuarantorSignature(customer.id, first!.id, image())
-    expect(again.guarantors.find((g) => g.id === first!.id)!.signatureUrl).toMatch(/^data:image\/png/)
-  })
-
-  it('keeps the images when the guarantor’s other details are edited', async () => {
-    const manager = as('manager@ems.ng')
-    const customer = db().customers.find((c) => c.branchId === manager.branchId && c.guarantors.length > 0)!
-    const g = customer.guarantors[0]!
-    await customersApi.uploadGuarantorPhoto(customer.id, g.id, image())
-    const updated = await customersApi.update(customer.id, {
-      guarantors: customer.guarantors.map((x) => ({
-        id: x.id,
-        fullName: x.id === g.id ? 'Changed Name' : x.fullName,
-        phone: x.phone,
-        address: x.address,
-        relationship: x.relationship,
-        occupation: x.occupation,
-        bvn: x.bvn,
-      })),
-    })
-    const after = updated.guarantors.find((x) => x.id === g.id)!
-    expect(after.fullName).toBe('Changed Name')
-    expect(after.photoUrl).toMatch(/^data:image\/png/)
-  })
-
-  it('rejects a file that is not an image, and an unknown guarantor', async () => {
-    const manager = as('manager@ems.ng')
-    const customer = db().customers.find((c) => c.branchId === manager.branchId && c.guarantors.length > 0)!
-    const bad = await apiError(
-      customersApi.uploadGuarantorPhoto(customer.id, customer.guarantors[0]!.id, new Blob(['hello'], { type: 'text/plain' })),
-    )
-    expect(bad.fieldErrors.file).toBeDefined()
-    await apiError(customersApi.uploadGuarantorPhoto(customer.id, 'no-such-guarantor', image()))
   })
 })

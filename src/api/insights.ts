@@ -26,6 +26,7 @@ const MONEY = new Set([
   'fees',
   'penalties',
   'commissions',
+  'charges',
   'total',
 ])
 

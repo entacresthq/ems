@@ -14,6 +14,9 @@ export type Role = (typeof ROLES)[number]
 /** Roles based at headquarters rather than a branch. */
 export const HEADQUARTERS_ROLES: readonly Role[] = ['md', 'general_manager', 'admin']
 
+/** The only roles that may ever edit a posted transaction. */
+export const TRANSACTION_EDITOR_ROLES: readonly Role[] = ['md', 'general_manager']
+
 /**
  * The MD and general managers approve everyone else's requests, so what they
  * start themselves (loans, reversals, large withdrawals, closures) needs no approval.
@@ -57,6 +60,7 @@ export const PERMISSIONS = [
   'transactions.view',
   'transactions.post',
   'transactions.request_reversal',
+  'transactions.edit', // correct a posted transaction: MD and general manager only
   'approvals.view',
   'approvals.decide',
   'reports.view',

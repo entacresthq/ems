@@ -6,6 +6,7 @@ import type {
   Id,
   Paginated,
   Transaction,
+  TransactionEditRequest,
   TransactionListParams,
 } from '@/types'
 import { api } from './client'
@@ -19,7 +20,7 @@ export const transactionKeys = {
 }
 
 type WirePosting =
-  | { status: 'posted'; transaction: Wire<Transaction> }
+  | { status: 'posted'; transaction: Wire<Transaction>; charge?: Wire<Transaction> | null }
   | { status: 'pending_approval'; approval: WireApproval }
 
 export const transactionsApi = {
@@ -38,8 +39,21 @@ export const transactionsApi = {
       amount: toDecimal(body.amount),
     })
     return res.status === 'posted'
-      ? { status: 'posted', transaction: decode.transaction(res.transaction) }
+      ? {
+          status: 'posted',
+          transaction: decode.transaction(res.transaction),
+          charge: res.charge ? decode.transaction(res.charge) : null,
+        }
       : { status: 'pending_approval', approval: decode.approval(res.approval) }
+  },
+  /** MD and general managers only. Send just the fields that change, with a reason. */
+  async edit(id: Id, input: TransactionEditRequest): Promise<Transaction> {
+    return decode.transaction(
+      await api.patch<Wire<Transaction>>(`/transactions/${id}/`, {
+        ...input,
+        amount: input.amount === undefined ? undefined : toDecimal(input.amount),
+      }),
+    )
   },
   async requestReversal(id: Id, reason: string): Promise<Approval> {
     return decode.approval(

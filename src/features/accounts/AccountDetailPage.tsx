@@ -255,7 +255,13 @@ function AccountView({ account: a }: { account: Account }) {
   )
 }
 
-function GoalPanel({ account, target }: { account: Account; target: NonNullable<Account['target']> }) {
+function GoalPanel({
+  account,
+  target,
+}: {
+  account: Account
+  target: NonNullable<Account['target']>
+}) {
   const g = goalProgress(target, account.balance, todayIso())
   const status = g.reached
     ? 'Goal reached'

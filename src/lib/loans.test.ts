@@ -177,7 +177,9 @@ describe('standing', () => {
 
 describe('processing fee', () => {
   it('supports percentage, flat and none', () => {
-    expect(processingFee(naira(200_000), { type: 'percentage', percent: '2.50' })).toBe(naira(5_000))
+    expect(processingFee(naira(200_000), { type: 'percentage', percent: '2.50' })).toBe(
+      naira(5_000),
+    )
     expect(processingFee(naira(200_000), { type: 'flat', amount: naira(3_000) })).toBe(naira(3_000))
     expect(processingFee(naira(200_000), { type: 'none' })).toBe(0)
   })
@@ -191,13 +193,23 @@ describe('processing fee', () => {
 
 describe('late penalty', () => {
   it('charges a percentage of arrears a day, up to the cap', () => {
-    const rule = { type: 'percentage', percentPerDay: '1.00', graceDays: 0, capPercent: '5.00' } as const
+    const rule = {
+      type: 'percentage',
+      percentPerDay: '1.00',
+      graceDays: 0,
+      capPercent: '5.00',
+    } as const
     expect(penaltyFor(rule, naira(10_000), 3)).toBe(naira(300))
     expect(penaltyFor(rule, naira(10_000), 30)).toBe(naira(500))
   })
 
   it('charges a flat amount a day, up to the cap', () => {
-    const rule = { type: 'flat', amountPerDay: naira(200), graceDays: 0, capPercent: '10.00' } as const
+    const rule = {
+      type: 'flat',
+      amountPerDay: naira(200),
+      graceDays: 0,
+      capPercent: '10.00',
+    } as const
     expect(penaltyFor(rule, naira(10_000), 3)).toBe(naira(600))
     // 10% of ₦10,000 = ₦1,000
     expect(penaltyFor(rule, naira(10_000), 30)).toBe(naira(1_000))
@@ -234,11 +246,15 @@ describe('late penalty', () => {
         fmt,
       ),
     ).toBe('₦200 a day after 3 days, up to 20.00% of arrears')
-    expect(describeInterest({ ratePercent: '15.00', interestBasis: 'overall', interestMethod: 'flat' })).toBe(
-      '15.00% overall',
-    )
     expect(
-      describeInterest({ ratePercent: '3.00', interestBasis: 'monthly', interestMethod: 'reducing_balance' }),
+      describeInterest({ ratePercent: '15.00', interestBasis: 'overall', interestMethod: 'flat' }),
+    ).toBe('15.00% overall')
+    expect(
+      describeInterest({
+        ratePercent: '3.00',
+        interestBasis: 'monthly',
+        interestMethod: 'reducing_balance',
+      }),
     ).toBe('3.00% a month, reducing balance')
   })
 })
@@ -279,7 +295,9 @@ describe('target savings progress', () => {
   })
 
   it('does not lock when the customer did not ask for it', () => {
-    expect(goalProgress({ ...target, lockUntilReached: false }, naira(1), '2026-09-25').locked).toBe(false)
+    expect(
+      goalProgress({ ...target, lockUntilReached: false }, naira(1), '2026-09-25').locked,
+    ).toBe(false)
   })
 })
 
@@ -287,13 +305,27 @@ describe('account number format', () => {
   const branch = { branchCode: '21', productCode: '10', year: 2026 }
 
   it('keeps the original format by default', () => {
-    expect(formatAccountNumber(DEFAULT_ACCOUNT_NUMBER_FORMAT, { ...branch, serial: 1 })).toBe('2110000001')
+    expect(formatAccountNumber(DEFAULT_ACCOUNT_NUMBER_FORMAT, { ...branch, serial: 1 })).toBe(
+      '2110000001',
+    )
   })
 
   it('builds a number from the chosen parts', () => {
-    const f = { prefix: 'ems', includeBranch: true, includeProduct: false, includeYear: true, serialLength: 5, separator: '-' as const }
+    const f = {
+      prefix: 'ems',
+      includeBranch: true,
+      includeProduct: false,
+      includeYear: true,
+      serialLength: 5,
+      separator: '-' as const,
+    }
     expect(previewAccountNumber({ ...f, prefix: 'EMS' })).toBe('EMS-21-26-00001')
-    expect(formatAccountNumber({ ...f, prefix: 'EMS', includeBranch: false, includeYear: false }, { ...branch, serial: 42 })).toBe('EMS-00042')
+    expect(
+      formatAccountNumber(
+        { ...f, prefix: 'EMS', includeBranch: false, includeYear: false },
+        { ...branch, serial: 42 },
+      ),
+    ).toBe('EMS-00042')
   })
 
   it('reads the serial back and carries on after the highest one', () => {
@@ -314,11 +346,24 @@ describe('account number format', () => {
 
   it('rejects formats that cannot work', () => {
     expect(validateAccountNumberFormat(DEFAULT_ACCOUNT_NUMBER_FORMAT)).toBe(null)
-    expect(validateAccountNumberFormat({ ...DEFAULT_ACCOUNT_NUMBER_FORMAT, serialLength: 2 })).toMatch(/between 3 and 10/)
-    expect(validateAccountNumberFormat({ ...DEFAULT_ACCOUNT_NUMBER_FORMAT, prefix: 'TOOLONG' })).toMatch(/prefix/)
-    expect(validateAccountNumberFormat({ ...DEFAULT_ACCOUNT_NUMBER_FORMAT, prefix: 'A-B' })).toMatch(/prefix/)
     expect(
-      validateAccountNumberFormat({ prefix: 'ABCD', includeBranch: true, includeProduct: true, includeYear: true, serialLength: 10, separator: '-' }),
+      validateAccountNumberFormat({ ...DEFAULT_ACCOUNT_NUMBER_FORMAT, serialLength: 2 }),
+    ).toMatch(/between 3 and 10/)
+    expect(
+      validateAccountNumberFormat({ ...DEFAULT_ACCOUNT_NUMBER_FORMAT, prefix: 'TOOLONG' }),
+    ).toMatch(/prefix/)
+    expect(
+      validateAccountNumberFormat({ ...DEFAULT_ACCOUNT_NUMBER_FORMAT, prefix: 'A-B' }),
+    ).toMatch(/prefix/)
+    expect(
+      validateAccountNumberFormat({
+        prefix: 'ABCD',
+        includeBranch: true,
+        includeProduct: true,
+        includeYear: true,
+        serialLength: 10,
+        separator: '-',
+      }),
     ).toMatch(/at most 20/)
   })
 })

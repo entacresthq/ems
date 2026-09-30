@@ -249,14 +249,16 @@ export function describeFee(rule: FeeRule, format: (k: Kobo) => string): string 
 /** Penalty for `lateDays` days past the grace period on `arrears`. */
 export function penaltyFor(rule: PenaltyRule, arrears: Kobo, lateDays: number): Kobo {
   if (arrears <= 0 || lateDays <= 0) return kobo(0)
-  const perDay = rule.type === 'flat' ? rule.amountPerDay : (arrears * Number(rule.percentPerDay)) / 100
+  const perDay =
+    rule.type === 'flat' ? rule.amountPerDay : (arrears * Number(rule.percentPerDay)) / 100
   const cap = (arrears * Number(rule.capPercent)) / 100
   return kobo(Math.round(Math.min(perDay * lateDays, cap)))
 }
 
 /** One-line description of a penalty rule. */
 export function describePenalty(rule: PenaltyRule, format: (k: Kobo) => string): string {
-  const per = rule.type === 'flat' ? `${format(rule.amountPerDay)} a day` : `${rule.percentPerDay}% a day`
+  const per =
+    rule.type === 'flat' ? `${format(rule.amountPerDay)} a day` : `${rule.percentPerDay}% a day`
   return `${per} after ${rule.graceDays} days, up to ${rule.capPercent}% of arrears`
 }
 

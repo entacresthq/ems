@@ -229,9 +229,10 @@ const builders: Record<string, Builder> = {
       fees: m(i.fees),
       penalties: m(i.penalties),
       commissions: m(i.commissions),
+      charges: m(i.charges),
       total: m(i.total),
     }))
-    const t = (k: 'interest' | 'fees' | 'penalties' | 'commissions' | 'total') =>
+    const t = (k: 'interest' | 'fees' | 'penalties' | 'commissions' | 'charges' | 'total') =>
       m(sum(all.map((i) => i[k])))
     return {
       columns: [
@@ -240,6 +241,7 @@ const builders: Record<string, Builder> = {
         col('fees', 'Processing fees', 'money'),
         col('penalties', 'Penalties', 'money'),
         col('commissions', 'Thrift commissions', 'money'),
+        col('charges', 'Withdrawal charges', 'money'),
         col('total', 'Total income', 'money'),
       ],
       rows,
@@ -249,6 +251,7 @@ const builders: Record<string, Builder> = {
         fees: t('fees'),
         penalties: t('penalties'),
         commissions: t('commissions'),
+        charges: t('charges'),
         total: t('total'),
       },
       notes: [

@@ -48,6 +48,26 @@ export interface AccountNumberFormat {
   separator: '' | '-'
 }
 
+/** What one withdrawal costs the customer. */
+export type WithdrawalCharge =
+  | { type: 'none' }
+  | {
+      type: 'percentage'
+      /** Percent of the amount withdrawn, as a decimal string, e.g. "1.00". */
+      percent: string
+      /** Most charged on one withdrawal; null for no limit. */
+      cap: Kobo | null
+    }
+  | { type: 'flat'; amount: Kobo }
+
+/** Charges taken from the account when a customer withdraws. */
+export interface TransactionCharges {
+  /** Ordinary savings accounts. */
+  savingsWithdrawal: WithdrawalCharge
+  /** Target savings accounts. */
+  targetWithdrawal: WithdrawalCharge
+}
+
 export interface BusinessSettings {
   businessName: string
   address: string
@@ -60,6 +80,7 @@ export interface BusinessSettings {
   workingDays: number[]
   holidays: Holiday[]
   largeWithdrawalThreshold: Kobo
+  transactionCharges: TransactionCharges
   accountNumberFormat: AccountNumberFormat
   reversalWindowDays: number
   fieldSyncMaxAgeDays: number
@@ -67,6 +88,8 @@ export interface BusinessSettings {
   rolePermissions: Record<Role, Permission[]>
   updatedAt: IsoDateTime
   updatedByName: string | null
+  /** One-off data upgrades already applied (internal). */
+  migrations?: string[]
 }
 
 export type SettingsInput = Partial<Omit<BusinessSettings, 'updatedAt' | 'updatedByName'>>

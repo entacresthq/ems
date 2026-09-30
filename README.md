@@ -300,7 +300,24 @@ Loan arithmetic lives in `src/lib/loans.ts` and is shared by the application for
 
 ## Administration
 
-- **Settings:** business details, SMS sender ID, working days and holidays, the large-withdrawal limit, the reversal window, the field sync age limit, SMS templates (with a placeholder check and SMS part count) and **what each role allows** (MD only). The MD always keeps every permission, and administrators can't lose access to settings and staff.
+- **Settings:** business details, SMS sender ID, working days and holidays, the large-withdrawal limit, **transaction charges**, the reversal window, the field sync age limit, SMS templates (with a placeholder check and SMS part count) and **what each role allows** (MD only). The MD always keeps every permission, and administrators can't lose access to settings and staff.
+- **Editing transactions:** only the MD and general managers can correct a posted transaction. The permission (`transactions.edit`) can't be given to any other role.
+  - Any type can have its date and time, payment method and note changed.
+  - These types can also have their amount changed: deposits, withdrawals, withdrawal charges, thrift contributions, commissions and payouts, loan repayments and penalties. Loan payouts and processing fees follow the loan's terms, and reversals mirror the original entry.
+  - A reason is required.
+  - The account balance, loan figures and every later "balance after" are recalculated.
+  - A change that would leave an account short, or overpay a loan, is refused, as is a date in the future or before the account was opened.
+  - Reversed transactions, and ones waiting for a reversal decision, can't be edited.
+  - Each change is kept on the transaction (shown as "Edited", with the history) and in the audit log.
+  - Editing a withdrawal doesn't change its withdrawal charge; edit the charge separately.
+- **Transaction charges:** a withdrawal charge for savings and for target savings, each set separately.
+  - Options are no charge, a percentage of the amount (with an optional most-per-withdrawal cap), or a flat fee.
+  - The charge is posted as its own "Withdrawal charge" entry right after the withdrawal, so statements show both.
+  - The balance must cover the withdrawal plus its charge. The cashier sees the charge before posting.
+  - Large withdrawals are charged when they are approved.
+  - Reversing a withdrawal refunds its charge.
+  - Charges count as income on the accountant's dashboard and in the income report.
+  - `src/lib/charges.ts` holds the calculation, used by both the server and the screens.
 - **Permissions:** two layers. Settings says which permissions each role _can_ have. When the MD or general manager adds someone, they tick some or all of that role's permissions for that person (grouped by area, all ticked to start). The server enforces the person's permissions limited to what the role allows.
   - Nobody can give a permission they don't hold, or change a permission they don't hold on someone else. So the GM can't hand out settings access.
   - Nobody can change their own permissions. Only the MD can add, edit or suspend a managing director.

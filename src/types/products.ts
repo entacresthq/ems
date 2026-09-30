@@ -39,9 +39,7 @@ export type LoanKind = 'cash' | 'bnpl'
 export type InterestBasis = 'monthly' | 'overall'
 
 export type FeeRule =
-  | { type: 'none' }
-  | { type: 'percentage'; percent: string }
-  | { type: 'flat'; amount: Kobo }
+  { type: 'none' } | { type: 'percentage'; percent: string } | { type: 'flat'; amount: Kobo }
 
 export type PenaltyRule = {
   graceDays: number

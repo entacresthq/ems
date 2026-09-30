@@ -20,21 +20,24 @@ import {
   validateAccountNumberFormat,
 } from '@/lib/accountNumber'
 import { formatDate, formatDateTime } from '@/lib/dates'
-import { formatNaira, type Kobo } from '@/lib/money'
+import { chargeFor, NO_CHARGES } from '@/lib/charges'
+import { formatNaira, kobo, type Kobo } from '@/lib/money'
 import { PERMISSION_GROUPS, PERMISSION_LABELS } from '@/lib/permissionCatalogue'
 import { hasPermission } from '@/lib/permissions'
 import {
   ROLE_LABELS,
   ROLES,
+  TRANSACTION_EDITOR_ROLES,
   type AccountNumberFormat,
   type BusinessSettings,
   type Holiday,
   type Permission,
   type Role,
   type SettingsInput,
+  type WithdrawalCharge,
 } from '@/types'
 
-type Tab = 'business' | 'calendar' | 'limits' | 'accounts' | 'sms' | 'roles'
+type Tab = 'business' | 'calendar' | 'limits' | 'charges' | 'accounts' | 'sms' | 'roles'
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
 export function SettingsPage() {
@@ -45,6 +48,7 @@ export function SettingsPage() {
     { value: 'business', label: 'Business details' },
     { value: 'calendar', label: 'Working days and holidays' },
     { value: 'limits', label: 'Limits' },
+    { value: 'charges', label: 'Transaction charges' },
     { value: 'accounts', label: 'Account numbers' },
     { value: 'sms', label: 'SMS messages' },
     ...(hasPermission(user, 'staff.permissions')
@@ -73,6 +77,8 @@ export function SettingsPage() {
           <CalendarForm s={query.data} />
         ) : tab === 'limits' ? (
           <LimitsForm s={query.data} />
+        ) : tab === 'charges' ? (
+          <ChargesForm s={query.data} />
         ) : tab === 'accounts' ? (
           <AccountNumberForm s={query.data} />
         ) : tab === 'sms' ? (
@@ -355,6 +361,144 @@ function LimitsForm({ s }: { s: BusinessSettings }) {
   )
 }
 
+/** One withdrawal charge being edited: the rule type and its inputs. */
+interface ChargeDraft {
+  type: WithdrawalCharge['type']
+  percent: string
+  cap: Kobo | null
+  amount: Kobo | null
+}
+
+const toDraft = (rule: WithdrawalCharge): ChargeDraft => ({
+  type: rule.type,
+  percent: rule.type === 'percentage' ? String(Number(rule.percent)) : '1',
+  cap: rule.type === 'percentage' ? rule.cap : null,
+  amount: rule.type === 'flat' ? rule.amount : null,
+})
+
+const fromDraft = (d: ChargeDraft): WithdrawalCharge =>
+  d.type === 'flat'
+    ? { type: 'flat', amount: d.amount ?? kobo(0) }
+    : d.type === 'percentage'
+      ? { type: 'percentage', percent: d.percent, cap: d.cap }
+      : { type: 'none' }
+
+const EXAMPLE_WITHDRAWAL = kobo(10_000 * 100)
+
+function ChargesForm({ s }: { s: BusinessSettings }) {
+  const charges = s.transactionCharges ?? NO_CHARGES
+  const [savings, setSavings] = useState(() => toDraft(charges.savingsWithdrawal))
+  const [target, setTarget] = useState(() => toDraft(charges.targetWithdrawal))
+  const { save, errors, formError, busy } = useSave()
+  return (
+    <Panel title="Withdrawal charges">
+      <p className="text-ink-2 mb-4 text-sm">
+        Taken from the account when a customer withdraws, as a separate “Withdrawal charge” entry,
+        and counted as income. The cashier sees the charge before posting. Reversing a withdrawal
+        refunds its charge. Changes apply to withdrawals from now on.
+      </p>
+      {formError && (
+        <Alert tone="danger" className="mb-4">
+          {formError}
+        </Alert>
+      )}
+      <div className="grid gap-6 lg:grid-cols-2">
+        <ChargeEditor
+          title="Savings accounts"
+          value={savings}
+          onChange={setSavings}
+          error={errors['transactionCharges.savingsWithdrawal']}
+        />
+        <ChargeEditor
+          title="Target savings accounts"
+          value={target}
+          onChange={setTarget}
+          error={errors['transactionCharges.targetWithdrawal']}
+        />
+      </div>
+      <SaveBar
+        busy={busy}
+        label="Save charges"
+        onSave={() =>
+          save(
+            {
+              transactionCharges: {
+                savingsWithdrawal: fromDraft(savings),
+                targetWithdrawal: fromDraft(target),
+              },
+            },
+            'Charges saved',
+          )
+        }
+      />
+    </Panel>
+  )
+}
+
+function ChargeEditor({
+  title,
+  value,
+  onChange,
+  error,
+}: {
+  title: string
+  value: ChargeDraft
+  onChange: (next: ChargeDraft) => void
+  error?: string
+}) {
+  const set = (patch: Partial<ChargeDraft>) => onChange({ ...value, ...patch })
+  const rule = fromDraft(value)
+  const example = chargeFor(EXAMPLE_WITHDRAWAL, rule)
+  const money = (k: Kobo) => formatNaira(k, { trimZeroKobo: true })
+  return (
+    <fieldset className="border-rule rounded border p-4">
+      <legend className="px-1 text-sm font-semibold">{title}</legend>
+      <div className="flex flex-col gap-3">
+        <Select
+          label="Charge"
+          value={value.type}
+          onChange={(e) => set({ type: e.target.value as ChargeDraft['type'] })}
+          error={error}
+        >
+          <option value="none">No charge</option>
+          <option value="percentage">Percentage of the amount</option>
+          <option value="flat">Flat fee per withdrawal</option>
+        </Select>
+        {value.type === 'percentage' && (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <TextInput
+              label="Percentage"
+              inputMode="decimal"
+              value={value.percent}
+              onChange={(e) => set({ percent: e.target.value.replace(/[^\d.]/g, '') })}
+              hint="e.g. 1 for 1%"
+            />
+            <MoneyInput
+              label="At most"
+              optional
+              value={value.cap}
+              onChange={(cap) => set({ cap })}
+              hint="Leave empty for no limit."
+            />
+          </div>
+        )}
+        {value.type === 'flat' && (
+          <MoneyInput
+            label="Fee per withdrawal"
+            value={value.amount}
+            onChange={(amount) => set({ amount })}
+          />
+        )}
+        <p className="text-ink-2 text-sm">
+          {value.type === 'none'
+            ? 'Customers withdraw without a charge.'
+            : `Withdrawing ${money(EXAMPLE_WITHDRAWAL)} costs ${money(example)}, so ${money(kobo(EXAMPLE_WITHDRAWAL + example))} comes out of the account.`}
+        </p>
+      </div>
+    </fieldset>
+  )
+}
+
 function AccountNumberForm({ s }: { s: BusinessSettings }) {
   const [format, setFormat] = useState<AccountNumberFormat>(s.accountNumberFormat)
   const { save, errors, formError, busy } = useSave()
@@ -371,9 +515,9 @@ function AccountNumberForm({ s }: { s: BusinessSettings }) {
         </Alert>
       )}
       <p className="text-ink-2 mb-4 text-sm">
-        Choose how new account numbers are built. The parts always come in this order: prefix, branch
-        code, product code, year, then a running serial number. Accounts that already exist keep
-        their numbers.
+        Choose how new account numbers are built. The parts always come in this order: prefix,
+        branch code, product code, year, then a running serial number. Accounts that already exist
+        keep their numbers.
       </p>
       <div className="grid gap-4 sm:grid-cols-2">
         <TextInput
@@ -530,7 +674,9 @@ function RolesForm({ s }: { s: BusinessSettings }) {
   const locked = (role: Role, p: Permission) =>
     role === 'md' ||
     (role === 'admin' && ['settings.manage', 'staff.manage', 'staff.view'].includes(p)) ||
-    (role === 'account_officer' && p === 'field.collect')
+    (role === 'account_officer' && p === 'field.collect') ||
+    // Only the MD and general managers may ever edit posted transactions.
+    (p === 'transactions.edit' && !TRANSACTION_EDITOR_ROLES.includes(role))
   const toggle = (role: Role, p: Permission, on: boolean) =>
     setMatrix((m) => ({ ...m, [role]: on ? [...m[role], p] : m[role].filter((x) => x !== p) }))
   return (

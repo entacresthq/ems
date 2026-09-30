@@ -11,7 +11,20 @@ import { useToast } from '@/components/ui/Toast'
 import { useCurrentUser } from '@/features/auth/AuthProvider'
 import { formatDateTime } from '@/lib/dates'
 import { hasPermission } from '@/lib/permissions'
-import { TRANSACTION_TYPE_LABELS, type Transaction } from '@/types'
+import {
+  TRANSACTION_EDITOR_ROLES,
+  TRANSACTION_TYPE_LABELS,
+  type Transaction,
+  type TransactionEdit,
+} from '@/types'
+import { EditTransactionDialog } from './EditTransactionDialog'
+
+const FIELD_LABELS: Record<TransactionEdit['changes'][number]['field'], string> = {
+  amount: 'Amount',
+  date: 'Date and time',
+  paymentMethod: 'Paid by',
+  note: 'Note',
+}
 
 const REVERSIBLE = new Set(['thrift_contribution', 'loan_repayment', 'deposit', 'withdrawal'])
 
@@ -30,6 +43,13 @@ export function TransactionDialog({
   const toast = useToast()
   const queryClient = useQueryClient()
   const [reversing, setReversing] = useState(false)
+  const [editing, setEditing] = useState(false)
+  // Only the MD and general managers may correct a posted transaction.
+  const canEdit =
+    t !== null &&
+    TRANSACTION_EDITOR_ROLES.includes(user.role) &&
+    hasPermission(user, 'transactions.edit') &&
+    t.status === 'posted'
   const canReverse =
     t !== null &&
     hasPermission(user, 'transactions.request_reversal') &&
@@ -39,12 +59,13 @@ export function TransactionDialog({
   return (
     <>
       <Dialog
-        open={t !== null && !reversing}
+        open={t !== null && !reversing && !editing}
         onClose={onClose}
         title={t ? TRANSACTION_TYPE_LABELS[t.type] : ''}
         description={t ? <span className="font-mono">{t.reference}</span> : undefined}
         footer={
           <>
+            {canEdit && <Button onClick={() => setEditing(true)}>Edit</Button>}
             {canReverse && (
               <Button variant="danger" onClick={() => setReversing(true)}>
                 Request reversal
@@ -58,7 +79,14 @@ export function TransactionDialog({
           <div className="flex flex-col gap-4">
             <div className="flex items-baseline justify-between gap-4">
               <Money value={signedAmount(t)} signed className="text-2xl font-semibold" />
-              <StatusBadge status={t.status} />
+              <span className="flex items-center gap-2">
+                {t.edits?.length ? (
+                  <span className="bg-ochre-tint text-ochre rounded-sm px-2 py-0.5 text-xs font-semibold">
+                    Edited
+                  </span>
+                ) : null}
+                <StatusBadge status={t.status} />
+              </span>
             </div>
             <DescriptionList
               items={[
@@ -122,9 +150,44 @@ export function TransactionDialog({
                 { label: 'Note', value: t.narration, wide: true },
               ]}
             />
+            {t.edits?.length ? (
+              <section aria-labelledby="edits-heading" className="border-rule border-t pt-3">
+                <h3 id="edits-heading" className="text-sm font-semibold">
+                  Changes
+                </h3>
+                <ol className="mt-2 flex flex-col gap-3">
+                  {[...t.edits].reverse().map((e) => (
+                    <li key={e.at} className="text-sm">
+                      <p className="text-ink-2 text-xs">
+                        {formatDateTime(e.at)} · {e.byName}
+                      </p>
+                      <ul className="mt-1">
+                        {e.changes.map((c) => (
+                          <li key={c.field}>
+                            {FIELD_LABELS[c.field]}: <span className="line-through">{c.from}</span>{' '}
+                            → <strong>{c.to}</strong>
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="text-ink-2 mt-0.5">“{e.reason}”</p>
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            ) : null}
           </div>
         )}
       </Dialog>
+      {t && editing && (
+        <EditTransactionDialog
+          transaction={t}
+          onClose={() => setEditing(false)}
+          onSaved={() => {
+            setEditing(false)
+            onClose()
+          }}
+        />
+      )}
       {t && (
         <ConfirmDialog
           open={reversing}
@@ -145,7 +208,10 @@ export function TransactionDialog({
             )
             toast(
               approval.status === 'approved'
-                ? { title: 'Transaction reversed', description: `${t.reference} has been reversed.` }
+                ? {
+                    title: 'Transaction reversed',
+                    description: `${t.reference} has been reversed.`,
+                  }
                 : {
                     title: 'Reversal requested',
                     description: `${t.reference} is on hold until a manager approves or rejects it.`,

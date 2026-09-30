@@ -92,6 +92,11 @@ export function defaultSettings(updatedAt: string): BusinessSettings {
     workingDays: [1, 2, 3, 4, 5, 6],
     holidays: HOLIDAYS_2026,
     largeWithdrawalThreshold: naira(500_000),
+    // Off until the business chooses its charges in Settings.
+    transactionCharges: {
+      savingsWithdrawal: { type: 'none' },
+      targetWithdrawal: { type: 'none' },
+    },
     accountNumberFormat: { ...DEFAULT_ACCOUNT_NUMBER_FORMAT },
     reversalWindowDays: 30,
     fieldSyncMaxAgeDays: 3,

@@ -22,7 +22,8 @@ beforeAll(() => server.listen({ onUnhandledRequest: 'error' }))
 afterEach(() => {
   cleanup()
   server.resetHandlers()
-  localStorage.clear()
-  sessionStorage.clear()
+  // Absent in tests that run in Node rather than a page (server-only tests).
+  globalThis.localStorage?.clear()
+  globalThis.sessionStorage?.clear()
 })
 afterAll(() => server.close())

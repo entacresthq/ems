@@ -154,7 +154,10 @@ function ReportView({ reportKey }: { reportKey: string }) {
               className="flex items-end gap-2"
               onSubmit={(e) => {
                 e.preventDefault()
-                list.setFilter('account', accountInput.replace(/[^A-Za-z0-9-]/g, '').toUpperCase() || undefined)
+                list.setFilter(
+                  'account',
+                  accountInput.replace(/[^A-Za-z0-9-]/g, '').toUpperCase() || undefined,
+                )
               }}
             >
               <TextInput

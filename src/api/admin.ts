@@ -1,3 +1,4 @@
+import { encodeCharges } from '@/lib/charges'
 import { toDecimal } from '@/lib/money'
 import type {
   AuditEntry,
@@ -43,6 +44,10 @@ export const settingsApi = {
         input.largeWithdrawalThreshold === undefined
           ? undefined
           : toDecimal(input.largeWithdrawalThreshold),
+      transactionCharges:
+        input.transactionCharges === undefined
+          ? undefined
+          : encodeCharges(input.transactionCharges),
     }
     return decode.settings(await api.patch<Wire<BusinessSettings>>('/settings/', body))
   },

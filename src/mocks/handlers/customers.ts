@@ -154,8 +154,12 @@ function assignment(staff: StaffRecord, body: Partial<CustomerInput>, errors: Er
 /** Read an uploaded image as a data URL, or say why it can't be used. */
 async function readImage(request: Request): Promise<string | Response> {
   const form = await request.formData().catch(() => null)
-  const file = form?.get('file')
-  if (!(file instanceof Blob)) return badRequest('Choose an image to upload.')
+  const entry = form?.get('file')
+  // Check what it can do, not its class: the server's Blob and the page's Blob can
+  // be different classes (Node vs the browser, and in tests).
+  if (!entry || typeof entry === 'string' || typeof entry.arrayBuffer !== 'function')
+    return badRequest('Choose an image to upload.')
+  const file = entry as Blob
   if (!file.type.startsWith('image/'))
     return validationError({ file: ['Upload a JPG or PNG image.'] })
   if (file.size > 2 * 1024 * 1024)

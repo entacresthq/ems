@@ -209,7 +209,9 @@ function ApplicationForm({ customer, topUp }: { customer: Customer; topUp: Loan 
         principal: principal!,
         installmentCount: Number(count),
         purpose: bnpl ? itemDescription.trim() : purpose,
-        ...(bnpl ? { itemDescription: itemDescription.trim(), supplierName: supplierName.trim() } : {}),
+        ...(bnpl
+          ? { itemDescription: itemDescription.trim(), supplierName: supplierName.trim() }
+          : {}),
         collateral: collateral.map((c) => ({ ...c, estimatedValue: c.estimatedValue ?? kobo(0) })),
         topUpOfId: topUp?.id ?? null,
       }),
@@ -251,7 +253,8 @@ function ApplicationForm({ customer, topUp }: { customer: Customer; topUp: Loan 
       next.installmentCount = `Between ${product.minTenor} and ${product.maxTenor} installments.`
     }
     if (bnpl) {
-      if (itemDescription.trim().length < 3) next.itemDescription = 'Say what the company is buying.'
+      if (itemDescription.trim().length < 3)
+        next.itemDescription = 'Say what the company is buying.'
       if (supplierName.trim().length < 2) next.supplierName = 'Enter who the company will pay.'
     } else if (purpose.trim().length < 5) next.purpose = 'Say what the money is for.'
     if (!bnpl && quote && quote.payout <= 0)
@@ -485,7 +488,11 @@ function ApplicationForm({ customer, topUp }: { customer: Customer; topUp: Loan 
                   <Money value={quote.totalRepayable} />
                 </dd>
                 <dt className="text-ink-2 mt-2">
-                  Processing fee ({describeFee(product!.processingFee, (k) => formatNaira(k, { trimZeroKobo: true }))})
+                  Processing fee (
+                  {describeFee(product!.processingFee, (k) =>
+                    formatNaira(k, { trimZeroKobo: true }),
+                  )}
+                  )
                 </dt>
                 <dd className="mt-2 text-right">
                   <Money value={quote.fee} />
