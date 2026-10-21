@@ -69,7 +69,7 @@
   </div>
   <h1>User guide</h1>
   <p class="sub">How to install and set up EMS, step by step, and how to use every feature: customers, savings, thrift, loans, transfers, field collections, approvals and reports.</p>
-  <div class="meta">Version 0.1 · September 2026<br>An Entacrest Nexus product</div>
+  <div class="meta">Version 0.2 · October 2026<br>An Entacrest Nexus product</div>
 </section>
 
 <!-- ───────────── CONTENTS ───────────── -->
@@ -89,7 +89,7 @@
     <li><b>10</b>Transfers between accounts</li>
     <li><b>11</b>Thrift (ajo/esusu) savings</li>
     <li><b>12</b>Field collections and remittance</li>
-    <li><b>13</b>Loans</li>
+    <li><b>13</b>Loans<span>Who qualifies, applying, repaying</span></li>
     <li><b>14</b>Approvals</li>
     <li><b>15</b>Correcting mistakes: reversals and edits</li>
     <li><b>16</b>Reports and the audit log</li>
@@ -249,13 +249,14 @@
   </ul>
 
   <h2>Step 4 · Check your settings</h2>
-  <p>Go to <span class="path">Administration → Settings</span>. Every change is recorded in the audit log.</p>
+  <p>Go to <span class="path">Administration → Settings</span>. The tabs are listed down the left side (across the top on a small screen). Every change is recorded in the audit log.</p>
   <table>
     <tr><th style="width:30%">Tab</th><th>What to set</th></tr>
     <tr><td>Business details</td><td>Name, address and phone shown on reports and receipts.</td></tr>
     <tr><td>Working days and holidays</td><td>Days you open, and public holidays. Repayment dates skip days you are closed.</td></tr>
     <tr><td>Limits</td><td>Amounts above which withdrawals and transfers need a manager’s approval, and other limits.</td></tr>
     <tr><td>Transaction charges</td><td>Withdrawal charges for savings and target savings (see below).</td></tr>
+    <tr><td>Loan eligibility</td><td>Who qualifies for a loan and the most they can borrow (see below).</td></tr>
     <tr><td>Account numbers</td><td>How account numbers are formed.</td></tr>
     <tr><td>SMS messages</td><td>The wording of texts customers receive.</td></tr>
     <tr><td>What each role allows</td><td>The most any person in each role may be given.</td></tr>
@@ -272,6 +273,43 @@
   </ol>
   <figure><img src="img/12-charges.png"><figcaption>A 1% charge on savings withdrawals: withdrawing ₦10,000 takes ₦10,100 from the account.</figcaption></figure>
   <p>The charge appears on the statement as a separate <b>Withdrawal charge</b> entry and counts as income. If a withdrawal is reversed, its charge is refunded. New charges apply to withdrawals from then on.</p>
+</section>
+
+<section class="chapter">
+  <h3 style="margin-top:0">Loan eligibility</h3>
+  <p>Your lending policy: who qualifies for a loan and the most each customer can borrow. It applies to every loan product, on top of each product’s own amounts, tenor and guarantor rule. Chapter 13 shows what staff see.</p>
+  <ol class="steps">
+    <li>Open the <span class="ui">Loan eligibility</span> tab.</li>
+    <li>Leave <span class="ui">Check applications against this policy</span> ticked.</li>
+    <li>Under <span class="ui">When an application fails</span>, choose what happens to an application that does not meet the policy:
+      <ul>
+        <li><b>Flag it for the approver</b>: it can still be sent. The approver sees what failed and decides.</li>
+        <li><b>Refuse it</b>: it cannot be sent, and staff cannot ask for more than the customer qualifies for.</li>
+      </ul></li>
+    <li>Set the rules below, then click <span class="ui">Save loan eligibility</span>.</li>
+  </ol>
+  <figure><img src="img/24-eligibility-settings.png"><figcaption>The Loan eligibility tab in Settings.</figcaption></figure>
+</section>
+
+<section class="chapter">
+  <table>
+    <tr><th style="width:36%">Setting</th><th>What it does</th><th style="width:15%">Starts at</th></tr>
+    <tr><td colspan="3"><b>Who qualifies</b></td></tr>
+    <tr><td>Customer for at least (days)</td><td>How long someone must have been a customer. 0 lets new customers borrow at once.</td><td>30 days</td></tr>
+    <tr><td>Deposits or contributions in the last 90 days</td><td>Shows the customer saves regularly. Counts savings deposits and thrift contributions.</td><td>4</td></tr>
+    <tr><td>Savings of at least</td><td>Savings the customer must already hold. Leave empty for no minimum.</td><td>None</td></tr>
+    <tr><td>Refuse customers who have had a loan written off</td><td>Customers with a written-off loan do not qualify.</td><td>On</td></tr>
+    <tr><td>Count these balances as savings</td><td>Which accounts count as savings: savings, target savings and thrift.</td><td>All three</td></tr>
+    <tr><td colspan="3"><b>How much they qualify for</b></td></tr>
+    <tr><td>Times savings</td><td>Lend up to this many times what the customer has saved. With 3, a customer with ₦100,000 saved can borrow up to ₦300,000.</td><td>3</td></tr>
+    <tr><td>Repayments, as % of what they pay in each month</td><td>Keeps loans affordable. Repayments, worked out per month, may take at most this share of what the customer paid in each month on average over the last 90 days.</td><td>100%</td></tr>
+    <tr><td colspan="3"><b>Top-ups</b></td></tr>
+    <tr><td>Current loan at most this many days in arrears</td><td>0 means the current loan must be up to date.</td><td>0</td></tr>
+    <tr><td>At least this % of the current loan repaid</td><td>How much of the current loan must be paid before a top-up.</td><td>50%</td></tr>
+  </table>
+  <p>Leave <b>Times savings</b> or <b>Repayments</b> empty to stop using that limit.</p>
+  <div class="note"><strong>Always required</strong>Whatever the policy says, a customer needs a BVN, a next of kin, a guarantor if the product needs one, and no other open loan. Untick <span class="ui">Check applications against this policy</span> to check only these and the product’s own rules.</div>
+  <div class="tip"><strong>Start by flagging</strong>EMS starts with <b>Flag it for the approver</b>, so no application is refused until you are ready. Watch what gets flagged for a few weeks, adjust the figures to suit your business, then switch to <b>Refuse it</b> if you want the rules enforced.</div>
 </section>
 
 <!-- ───────────── 7 ───────────── -->
@@ -432,7 +470,7 @@
   <h1>Loans</h1>
   <h2>The life of a loan</h2>
   <ol class="steps">
-    <li><b>Apply.</b> Open the customer’s page and click <span class="ui">Apply for a loan</span>. Choose the product, amount, tenor and purpose. Add guarantors or collateral if the product needs them. EMS shows the repayment schedule before you submit.</li>
+    <li><b>Check and apply.</b> Open the customer’s page and look at <b>Loan eligibility</b> to see what they qualify for (next page). Click <span class="ui">Apply for a loan</span>. Choose the product, amount, tenor and purpose. Add guarantors or collateral if the product needs them. EMS shows the repayment schedule before you submit.</li>
     <li><b>Approve.</b> The application goes to <b>Approvals</b>. A manager approves or rejects it (Chapter 14).</li>
     <li><b>Pay out.</b> Open the loan under <span class="path">Lending and savings → Loans</span> and click <span class="ui">Pay out loan</span>. The processing fee is taken as set on the product. For buy-now-pay-later products, use <span class="ui">Pay supplier</span> instead.</li>
     <li><b>Repay.</b> Repayments come from field collections, the counter, or transfers from the customer’s savings. Each repayment settles the oldest instalment first.</li>
@@ -440,6 +478,47 @@
     <li><b>Changes.</b> Use <span class="ui">Request extension</span> to give more time (needs approval), or <span class="ui">Top up loan</span> to lend more.</li>
   </ol>
   <figure><img src="img/16-loan.png"><figcaption>A loan: outstanding balance, arrears, repayment schedule and terms.</figcaption></figure>
+</section>
+
+<section class="chapter">
+  <h2 style="margin-top:0">Who qualifies, and for how much</h2>
+  <p>EMS checks every customer against your lending policy (set in <span class="path">Settings → Loan eligibility</span>, Chapter 6) and each product’s rules.</p>
+  <p>On a customer’s page, the <b>Loan eligibility</b> panel shows:</p>
+  <ul>
+    <li>A summary line: how much they have saved, how many deposits they made in the last 90 days, and about how much they pay in each month.</li>
+    <li>Each loan product, with <b>Up to ₦…</b> if they qualify, or <b>Does not qualify</b> and the reason.</li>
+    <li>The checks: a tick for each one met, a cross for each one not met.</li>
+  </ul>
+  <figure><img src="img/25-customer-eligibility.png"><figcaption>Adenike qualifies for up to ₦79,000 on the Daily market loan, and for less than the Weekly trader loan’s smallest amount.</figcaption></figure>
+  <p>If the customer has an active cash loan, the panel shows a <span class="ui">Check a top-up</span> link instead.</p>
+</section>
+
+<section class="chapter">
+  <h3 style="margin-top:0">How the amount is worked out</h3>
+  <p>A customer can borrow the <b>smallest</b> of:</p>
+  <ol class="steps">
+    <li>The product’s largest amount.</li>
+    <li>Their savings times the <b>Times savings</b> figure.</li>
+    <li>What they can afford: the most they can borrow while the repayments, worked out per month, stay within the <b>Repayments</b> percentage of what they pay in each month. This depends on the product’s interest and how many instalments are chosen, so a longer loan allows a larger amount.</li>
+  </ol>
+  <p>Amounts are rounded down to the nearest ₦1,000. If the result is less than the product’s smallest amount, the customer does not qualify for that product.</p>
+  <div class="note"><strong>Example</strong>Adenike has ₦61,300 saved and pays in about ₦20,333 a month. On the Daily market loan over 120 instalments: the product lends up to ₦1,000,000; 3 × savings is ₦183,000; repayments within 100% of ₦20,333 a month allow ₦79,000. Adenike qualifies for <b>₦79,000</b>, the smallest of the three.</div>
+  <h3>While applying</h3>
+  <p>On the application page, the checks update as you choose the product, number of instalments and amount:</p>
+  <ul>
+    <li>The product list shows <b>up to ₦…</b> or <b>does not qualify</b> next to each product.</li>
+    <li>Under the amount, EMS shows the most the customer qualifies for over the instalments chosen.</li>
+    <li><b>What sets the amount</b> lists the three limits. The one in bold decides the amount.</li>
+    <li>If the application is outside the policy, a warning explains why. If your business flags rather than refuses, you can still send it.</li>
+  </ul>
+</section>
+
+<section class="chapter">
+  <figure><img src="img/26-loan-application.png"><figcaption>Applying for ₦63,000 over 120 daily instalments. The customer qualifies for up to ₦79,000, limited by what Adenike can afford.</figcaption></figure>
+  <h3>Top-ups</h3>
+  <p>For a top-up, the current loan must be no more days in arrears, and at least as much repaid, as your policy allows. The new loan must also be within what the customer qualifies for.</p>
+  <h3>On the loan</h3>
+  <p>Every application records what the check found. The loan’s page shows <b>Eligibility when applied</b>: <b>Within the lending policy</b> or <b>Outside the lending policy</b>, the most the customer qualified for, and anything that failed. This stays with the loan even if the customer’s savings or your policy change later.</p>
 </section>
 
 <!-- ───────────── 14 ───────────── -->
@@ -454,6 +533,7 @@
     <li>Click <b>Approve</b> or <b>Reject</b>, with a note if needed. Nothing changes until it is approved.</li>
   </ol>
   <div class="note"><strong>You can’t approve your own request.</strong>Someone else with approval permission must do it.</div>
+  <div class="warn"><strong>Loans outside the lending policy</strong>A loan application that does not meet your lending policy says <b>outside the lending policy</b> in its title. Open the loan and read <b>Eligibility when applied</b> to see what failed before you decide.</div>
   <figure><img src="img/17-approvals.png"><figcaption>Approvals waiting for a decision.</figcaption></figure>
 </section>
 

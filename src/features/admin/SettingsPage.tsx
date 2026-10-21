@@ -21,6 +21,7 @@ import {
 } from '@/lib/accountNumber'
 import { formatDate, formatDateTime } from '@/lib/dates'
 import { chargeFor, NO_CHARGES } from '@/lib/charges'
+import { ACTIVITY_WINDOW_DAYS, DEFAULT_LOAN_ELIGIBILITY } from '@/lib/eligibility'
 import { formatNaira, kobo, type Kobo } from '@/lib/money'
 import { PERMISSION_GROUPS, PERMISSION_LABELS } from '@/lib/permissionCatalogue'
 import { hasPermission } from '@/lib/permissions'
@@ -31,13 +32,14 @@ import {
   type AccountNumberFormat,
   type BusinessSettings,
   type Holiday,
+  type LoanEligibilityPolicy,
   type Permission,
   type Role,
   type SettingsInput,
   type WithdrawalCharge,
 } from '@/types'
 
-type Tab = 'business' | 'calendar' | 'limits' | 'charges' | 'accounts' | 'sms' | 'roles'
+type Tab = 'business' | 'calendar' | 'limits' | 'charges' | 'lending' | 'accounts' | 'sms' | 'roles'
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
 export function SettingsPage() {
@@ -49,6 +51,7 @@ export function SettingsPage() {
     { value: 'calendar', label: 'Working days and holidays' },
     { value: 'limits', label: 'Limits' },
     { value: 'charges', label: 'Transaction charges' },
+    { value: 'lending', label: 'Loan eligibility' },
     { value: 'accounts', label: 'Account numbers' },
     { value: 'sms', label: 'SMS messages' },
     ...(hasPermission(user, 'staff.permissions')
@@ -65,27 +68,39 @@ export function SettingsPage() {
             : 'Every change is recorded in the audit log.'
         }
       />
-      <Tabs label="Settings sections" value={tab} onChange={setTab} items={tabs} />
-      <div className="mt-6 max-w-4xl">
-        {query.isPending ? (
-          <LoadingState />
-        ) : query.isError ? (
-          <ErrorState error={query.error} onRetry={() => void query.refetch()} />
-        ) : tab === 'business' ? (
-          <BusinessForm s={query.data} />
-        ) : tab === 'calendar' ? (
-          <CalendarForm s={query.data} />
-        ) : tab === 'limits' ? (
-          <LimitsForm s={query.data} />
-        ) : tab === 'charges' ? (
-          <ChargesForm s={query.data} />
-        ) : tab === 'accounts' ? (
-          <AccountNumberForm s={query.data} />
-        ) : tab === 'sms' ? (
-          <SmsForm s={query.data} />
-        ) : (
-          <RolesForm s={query.data} />
-        )}
+      <div className="grid gap-6 lg:grid-cols-[13rem_minmax(0,1fr)] lg:items-start">
+        <nav className="min-w-0 lg:sticky lg:top-20">
+          <Tabs
+            label="Settings sections"
+            value={tab}
+            onChange={setTab}
+            items={tabs}
+            orientation="vertical"
+          />
+        </nav>
+        <div className="max-w-4xl min-w-0">
+          {query.isPending ? (
+            <LoadingState />
+          ) : query.isError ? (
+            <ErrorState error={query.error} onRetry={() => void query.refetch()} />
+          ) : tab === 'business' ? (
+            <BusinessForm s={query.data} />
+          ) : tab === 'calendar' ? (
+            <CalendarForm s={query.data} />
+          ) : tab === 'limits' ? (
+            <LimitsForm s={query.data} />
+          ) : tab === 'charges' ? (
+            <ChargesForm s={query.data} />
+          ) : tab === 'lending' ? (
+            <LoanEligibilityForm s={query.data} />
+          ) : tab === 'accounts' ? (
+            <AccountNumberForm s={query.data} />
+          ) : tab === 'sms' ? (
+            <SmsForm s={query.data} />
+          ) : (
+            <RolesForm s={query.data} />
+          )}
+        </div>
       </div>
     </>
   )
@@ -354,6 +369,208 @@ function LimitsForm({ s }: { s: BusinessSettings }) {
               fieldSyncMaxAgeDays: Number(syncAge),
             },
             'Limits saved',
+          )
+        }
+      />
+    </Panel>
+  )
+}
+
+const SAVINGS_TYPES = [
+  { value: 'savings', label: 'Savings' },
+  { value: 'target', label: 'Target savings' },
+  { value: 'thrift', label: 'Thrift' },
+] as const
+
+function LoanEligibilityForm({ s }: { s: BusinessSettings }) {
+  const initial = s.loanEligibility ?? DEFAULT_LOAN_ELIGIBILITY
+  const [p, setP] = useState<LoanEligibilityPolicy>(initial)
+  const [minSavings, setMinSavings] = useState<Kobo | null>(initial.minSavings)
+  const [multiplier, setMultiplier] = useState(
+    initial.savingsMultiplier ? String(Number(initial.savingsMultiplier)) : '',
+  )
+  const [repayment, setRepayment] = useState(
+    initial.maxRepaymentPercent ? String(Number(initial.maxRepaymentPercent)) : '',
+  )
+  const [membership, setMembership] = useState(String(initial.minMembershipDays))
+  const [deposits, setDeposits] = useState(String(initial.minDepositsInWindow))
+  const [topUpArrears, setTopUpArrears] = useState(String(initial.topUpMaxDaysInArrears))
+  const [topUpRepaid, setTopUpRepaid] = useState(String(Number(initial.topUpMinRepaidPercent)))
+  const { save, errors, formError, busy } = useSave()
+  const set = (patch: Partial<LoanEligibilityPolicy>) => setP((x) => ({ ...x, ...patch }))
+  const err = (key: keyof LoanEligibilityPolicy) => errors[`loanEligibility.${key}`]
+  const off = !p.enabled
+  return (
+    <Panel title="Loan eligibility">
+      <p className="text-ink-2 mb-4 text-sm">
+        Decides who qualifies for a loan and the most they can borrow, on top of each product’s own
+        amounts, tenors and guarantor rule. Staff see the result on the customer’s page and while
+        applying, and it is recorded on every application for the approver. A BVN, next of kin and
+        no other open loan are always required.
+      </p>
+      {formError && (
+        <Alert tone="danger" className="mb-4">
+          {formError}
+        </Alert>
+      )}
+      <div className="flex flex-col gap-6">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Checkbox
+            label="Check applications against this policy"
+            checked={p.enabled}
+            onChange={(e) => set({ enabled: e.target.checked })}
+            className="sm:col-span-2"
+          />
+          <Select
+            label="When an application fails"
+            value={p.enforcement}
+            onChange={(e) =>
+              set({ enforcement: e.target.value as LoanEligibilityPolicy['enforcement'] })
+            }
+            error={err('enforcement')}
+            disabled={off}
+            hint={
+              p.enforcement === 'block'
+                ? 'Staff cannot send it, and cannot ask for more than the customer qualifies for.'
+                : 'It can still be sent. The approver sees what failed and decides.'
+            }
+          >
+            <option value="advise">Flag it for the approver</option>
+            <option value="block">Refuse it</option>
+          </Select>
+        </div>
+
+        <fieldset className="border-rule rounded border p-4" disabled={off}>
+          <legend className="px-1 text-sm font-semibold">Who qualifies</legend>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <TextInput
+              label="Customer for at least (days)"
+              inputMode="numeric"
+              value={membership}
+              onChange={(e) => setMembership(e.target.value.replace(/\D/g, ''))}
+              error={err('minMembershipDays')}
+              hint="0 to allow new customers to borrow at once."
+            />
+            <TextInput
+              label={`Deposits or contributions in the last ${ACTIVITY_WINDOW_DAYS} days`}
+              inputMode="numeric"
+              value={deposits}
+              onChange={(e) => setDeposits(e.target.value.replace(/\D/g, ''))}
+              error={err('minDepositsInWindow')}
+              hint="Shows the customer saves regularly. 0 for no requirement."
+            />
+            <MoneyInput
+              label="Savings of at least"
+              optional
+              value={minSavings}
+              onChange={setMinSavings}
+              error={err('minSavings')}
+              hint="Leave empty for no minimum."
+            />
+            <Checkbox
+              label="Refuse customers who have had a loan written off"
+              checked={p.blockAfterWriteOff}
+              onChange={(e) => set({ blockAfterWriteOff: e.target.checked })}
+              className="self-center"
+            />
+          </div>
+          <div className="mt-4">
+            <p className="mb-2 text-sm font-medium">Count these balances as savings</p>
+            <div className="flex flex-wrap gap-4">
+              {SAVINGS_TYPES.map((t) => (
+                <Checkbox
+                  key={t.value}
+                  label={t.label}
+                  checked={p.savingsAccountTypes.includes(t.value)}
+                  onChange={(e) =>
+                    set({
+                      savingsAccountTypes: e.target.checked
+                        ? [...p.savingsAccountTypes, t.value]
+                        : p.savingsAccountTypes.filter((x) => x !== t.value),
+                    })
+                  }
+                />
+              ))}
+            </div>
+            {err('savingsAccountTypes') && (
+              <p className="text-brick mt-1 text-sm">{err('savingsAccountTypes')}</p>
+            )}
+          </div>
+        </fieldset>
+
+        <fieldset className="border-rule rounded border p-4" disabled={off}>
+          <legend className="px-1 text-sm font-semibold">How much they qualify for</legend>
+          <p className="text-ink-2 mb-3 text-sm">
+            The smallest of the product’s largest amount and the limits below. Leave a limit empty
+            to not use it.
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <TextInput
+              label="Times savings"
+              inputMode="decimal"
+              value={multiplier}
+              onChange={(e) => setMultiplier(e.target.value.replace(/[^\d.]/g, ''))}
+              error={err('savingsMultiplier')}
+              hint={
+                multiplier
+                  ? `A customer with ₦100,000 saved can borrow up to ${formatNaira(kobo(Math.round(100_000_00 * Number(multiplier))), { trimZeroKobo: true })}.`
+                  : 'No limit from savings.'
+              }
+            />
+            <TextInput
+              label="Repayments, as % of what they pay in each month"
+              inputMode="decimal"
+              value={repayment}
+              onChange={(e) => setRepayment(e.target.value.replace(/[^\d.]/g, ''))}
+              error={err('maxRepaymentPercent')}
+              hint={
+                repayment
+                  ? `A customer who pays in ₦60,000 a month can take on repayments of up to ${formatNaira(kobo(Math.round((60_000_00 * Number(repayment)) / 100)), { trimZeroKobo: true })} a month.`
+                  : 'No affordability limit.'
+              }
+            />
+          </div>
+        </fieldset>
+
+        <fieldset className="border-rule rounded border p-4" disabled={off}>
+          <legend className="px-1 text-sm font-semibold">Top-ups</legend>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <TextInput
+              label="Current loan at most this many days in arrears"
+              inputMode="numeric"
+              value={topUpArrears}
+              onChange={(e) => setTopUpArrears(e.target.value.replace(/\D/g, ''))}
+              error={err('topUpMaxDaysInArrears')}
+              hint="0 means the loan must be up to date."
+            />
+            <TextInput
+              label="At least this % of the current loan repaid"
+              inputMode="decimal"
+              value={topUpRepaid}
+              onChange={(e) => setTopUpRepaid(e.target.value.replace(/[^\d.]/g, ''))}
+              error={err('topUpMinRepaidPercent')}
+            />
+          </div>
+        </fieldset>
+      </div>
+      <SaveBar
+        busy={busy}
+        label="Save loan eligibility"
+        onSave={() =>
+          save(
+            {
+              loanEligibility: {
+                ...p,
+                minSavings: minSavings ?? kobo(0),
+                savingsMultiplier: multiplier || null,
+                maxRepaymentPercent: repayment || null,
+                minMembershipDays: Number(membership || 0),
+                minDepositsInWindow: Number(deposits || 0),
+                topUpMaxDaysInArrears: Number(topUpArrears || 0),
+                topUpMinRepaidPercent: topUpRepaid || '0',
+              },
+            },
+            'Loan eligibility saved',
           )
         }
       />

@@ -7,24 +7,34 @@ export interface TabItem<T extends string> {
   count?: number
 }
 
-/** Tab strip with arrow-key movement. Content is rendered by the caller. */
+/**
+ * Tab strip with arrow-key movement. Content is rendered by the caller.
+ * Vertical tabs sit in a side column on large screens and become a strip on smaller ones.
+ */
 export function Tabs<T extends string>({
   items,
   value,
   onChange,
   label,
+  orientation = 'horizontal',
 }: {
   items: TabItem<T>[]
   value: T
   onChange: (value: T) => void
   label: string
+  orientation?: 'horizontal' | 'vertical'
 }) {
   const refs = useRef<(HTMLButtonElement | null)[]>([])
+  const vertical = orientation === 'vertical'
   return (
     <div
       role="tablist"
       aria-label={label}
-      className="border-rule flex gap-1 overflow-x-auto border-b"
+      aria-orientation={orientation}
+      className={cn(
+        'border-rule flex gap-1 overflow-x-auto border-b',
+        vertical && 'lg:flex-col lg:overflow-visible lg:border-b-0 lg:border-l',
+      )}
     >
       {items.map((item, i) => {
         const selected = item.value === value
@@ -40,14 +50,19 @@ export function Tabs<T extends string>({
             tabIndex={selected ? 0 : -1}
             onClick={() => onChange(item.value)}
             onKeyDown={(e) => {
-              const dir = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0
+              const forward = e.key === 'ArrowRight' || (vertical && e.key === 'ArrowDown')
+              const back = e.key === 'ArrowLeft' || (vertical && e.key === 'ArrowUp')
+              const dir = forward ? 1 : back ? -1 : 0
               if (!dir) return
+              e.preventDefault()
               const next = (i + dir + items.length) % items.length
               refs.current[next]?.focus()
               onChange(items[next]!.value)
             }}
             className={cn(
               '-mb-px flex items-center gap-2 border-b-2 px-3 py-2 text-sm whitespace-nowrap',
+              vertical &&
+                'lg:mb-0 lg:-ml-px lg:border-b-0 lg:border-l-2 lg:py-2.5 lg:text-left lg:whitespace-normal',
               selected
                 ? 'border-ink text-ink font-semibold'
                 : 'text-ink-2 hover:text-ink border-transparent',

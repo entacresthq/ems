@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { CircleCheck, CircleX, Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
 import { customerKeys, customersApi } from '@/api/customers'
 import { isApiError } from '@/api/client'
 import { loanKeys, loanProductKeys, loanProductsApi, loansApi } from '@/api/loans'
@@ -17,10 +17,12 @@ import { useToast } from '@/components/ui/Toast'
 import { useBranchScope } from '@/features/organisation/BranchScope'
 import { cn } from '@/lib/cn'
 import { formatDate, todayIso } from '@/lib/dates'
+import { evaluateEligibility } from '@/lib/eligibility'
 import { buildSchedule, describeFee, describeInterest, processingFee } from '@/lib/loans'
 import { formatNaira, kobo, type Kobo } from '@/lib/money'
 import { formatPhone } from '@/lib/phone'
-import type { Collateral, Customer, Loan } from '@/types'
+import type { Collateral, Customer, EligibilityCheck, Loan } from '@/types'
+import { CheckList, commonChecks, EligibilityFactsLine, useEligibility } from './Eligibility'
 import { tenorLabel } from './LoanProductsPage'
 
 export function LoanApplicationPage() {
@@ -123,21 +125,6 @@ function CustomerPicker() {
   )
 }
 
-function Check({ ok, children }: { ok: boolean; children: React.ReactNode }) {
-  return (
-    <li
-      className={cn('flex items-start gap-2 text-sm', ok ? 'text-ink' : 'text-brick font-medium')}
-    >
-      {ok ? (
-        <CircleCheck className="text-ledger mt-0.5 size-4 shrink-0" aria-hidden />
-      ) : (
-        <CircleX className="mt-0.5 size-4 shrink-0" aria-hidden />
-      )}
-      <span>{children}</span>
-    </li>
-  )
-}
-
 function ApplicationForm({ customer, topUp }: { customer: Customer; topUp: Loan | null }) {
   const navigate = useNavigate()
   const toast = useToast()
@@ -159,6 +146,27 @@ function ApplicationForm({ customer, topUp }: { customer: Customer; topUp: Loan 
   const [formError, setFormError] = useState<string | null>(null)
   const product = products.data?.results.find((p) => p.id === productId)
   const bnpl = product?.kind === 'bnpl'
+  const eligibility = useEligibility(customer.id, topUp?.id ?? null)
+  const report = eligibility.data
+  const policy = report?.policy
+  const enforced = Boolean(policy?.enabled && policy.enforcement === 'block')
+  const tenor = Number(count)
+  const tenorValid = Boolean(
+    product && Number.isInteger(tenor) && tenor >= product.minTenor && tenor <= product.maxTenor,
+  )
+  // Worked out here, from the same rules the server applies, so it follows the tenor as it is typed.
+  const evaluation = useMemo(
+    () =>
+      report && product
+        ? evaluateEligibility(report.policy, report.facts, product, {
+            installmentCount: tenorValid ? tenor : undefined,
+            topUpOfId: topUp?.id ?? null,
+          })
+        : null,
+    [report, product, tenor, tenorValid, topUp],
+  )
+  const overLimit = Boolean(evaluation?.qualified && principal && principal > evaluation.maxAmount)
+  const outsidePolicy = Boolean(evaluation && (!evaluation.qualified || overLimit))
 
   const quote = useMemo(() => {
     const n = Number(count)
@@ -182,24 +190,23 @@ function ApplicationForm({ customer, topUp }: { customer: Customer; topUp: Loan 
     return { ...q, fee, settle, payout }
   }, [product, principal, count, topUp])
 
-  const checks = [
-    { ok: customer.status === 'active', text: 'Active customer' },
-    {
-      ok: Boolean(customer.bvn),
-      text: customer.bvn ? 'BVN on record' : 'No BVN. Add it on the customer’s page first.',
-    },
-    {
-      ok: Boolean(customer.nextOfKin),
-      text: customer.nextOfKin ? 'Next of kin on record' : 'No next of kin. Add one first.',
-    },
-    {
-      ok: !product?.requiresGuarantor || customer.guarantors.length > 0,
-      text: customer.guarantors.length
-        ? `${customer.guarantors.length} guarantor${customer.guarantors.length > 1 ? 's' : ''}: ${customer.guarantors.map((g) => g.fullName).join(', ')}`
-        : 'No guarantor. This product needs one.',
-    },
-  ]
-  const blocked = checks.some((c) => !c.ok)
+  // Before a product is chosen, show what every product checks.
+  const checks: EligibilityCheck[] =
+    evaluation?.checks ??
+    (report?.products[0]
+      ? commonChecks(report.products[0])
+      : [
+          {
+            key: 'active',
+            label: 'Active customer',
+            passed: customer.status === 'active',
+            detail: customer.status === 'active' ? 'Active' : customer.status,
+            policy: false,
+          },
+        ])
+  // The customer's records are always required; the policy only when the business enforces it.
+  const recordsMissing = checks.some((c) => !c.passed && !c.policy)
+  const blocked = recordsMissing || (enforced && checks.some((c) => !c.passed))
 
   const submit = useMutation({
     mutationFn: () =>
@@ -247,6 +254,8 @@ function ApplicationForm({ customer, topUp }: { customer: Customer; topUp: Loan 
     if (!principal) next.principal = 'Enter the amount.'
     else if (product && (principal < product.minAmount || principal > product.maxAmount)) {
       next.principal = `Between ${formatNaira(product.minAmount, { trimZeroKobo: true })} and ${formatNaira(product.maxAmount, { trimZeroKobo: true })}.`
+    } else if (enforced && overLimit && evaluation) {
+      next.principal = `${customer.firstName} qualifies for up to ${formatNaira(evaluation.maxAmount, { trimZeroKobo: true })} over ${evaluation.installmentCount} installments.`
     }
     const n = Number(count)
     if (product && (!Number.isInteger(n) || n < product.minTenor || n > product.maxTenor)) {
@@ -285,14 +294,15 @@ function ApplicationForm({ customer, topUp }: { customer: Customer; topUp: Loan 
           <p className="text-ink-2 text-sm">
             {customer.occupation} · {customer.area} · Officer {customer.officerName}
           </p>
-          <ul className="mt-3 flex flex-col gap-1.5">
-            {checks.map((c) => (
-              <Check key={c.text} ok={c.ok}>
-                {c.text}
-              </Check>
-            ))}
-          </ul>
-          {blocked && (
+          {report && (
+            <div className="mt-2">
+              <EligibilityFactsLine report={report} />
+            </div>
+          )}
+          <div className="mt-3">
+            <CheckList checks={checks} />
+          </div>
+          {recordsMissing && (
             <p className="mt-3 text-sm">
               <Link to={`/customers/${customer.id}/edit`} className="font-medium underline">
                 Update the customer’s details
@@ -326,11 +336,18 @@ function ApplicationForm({ customer, topUp }: { customer: Customer; topUp: Loan 
                 )
                 return group?.length ? (
                   <optgroup key={kind} label={kind === 'cash' ? 'Cash loans' : 'Buy now pay later'}>
-                    {group.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} · {describeInterest(p)}
-                      </option>
-                    ))}
+                    {group.map((p) => {
+                      const r = report?.products.find((x) => x.productId === p.id)
+                      return (
+                        <option key={p.id} value={p.id}>
+                          {p.name} · {describeInterest(p)}
+                          {r &&
+                            (r.qualified
+                              ? ` · up to ${formatNaira(r.maxAmount, { trimZeroKobo: true })}`
+                              : ' · does not qualify')}
+                        </option>
+                      )
+                    })}
                   </optgroup>
                 ) : null
               })}
@@ -341,9 +358,11 @@ function ApplicationForm({ customer, topUp }: { customer: Customer; topUp: Loan 
               onChange={setPrincipal}
               error={errors.principal}
               hint={
-                product
-                  ? `${formatNaira(product.minAmount, { trimZeroKobo: true })} to ${formatNaira(product.maxAmount, { trimZeroKobo: true })}`
-                  : undefined
+                evaluation?.qualified
+                  ? `${customer.firstName} qualifies for up to ${formatNaira(evaluation.maxAmount, { trimZeroKobo: true })} over ${evaluation.installmentCount} installments`
+                  : product
+                    ? `${formatNaira(product.minAmount, { trimZeroKobo: true })} to ${formatNaira(product.maxAmount, { trimZeroKobo: true })}`
+                    : undefined
               }
             />
             <TextInput
@@ -517,6 +536,35 @@ function ApplicationForm({ customer, topUp }: { customer: Customer; topUp: Loan 
             </>
           )}
         </Panel>
+        {evaluation?.qualified && (
+          <Panel title="What sets the amount">
+            <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1.5 text-sm">
+              {evaluation.limits.map((l) => (
+                <div key={l.key} className="contents">
+                  <dt className={cn(l.key === evaluation.limitedBy ? 'font-medium' : 'text-ink-2')}>
+                    {l.label}
+                  </dt>
+                  <dd
+                    className={cn('text-right', l.key === evaluation.limitedBy && 'font-semibold')}
+                  >
+                    <Money value={l.amount} />
+                  </dd>
+                </div>
+              ))}
+            </dl>
+            <p className="text-ink-2 mt-2 text-xs">
+              The smallest of these is what they qualify for.
+            </p>
+          </Panel>
+        )}
+        {outsidePolicy && !enforced && (
+          <Alert tone="warning" title="Outside the lending policy">
+            {overLimit && evaluation
+              ? `This is more than the ${formatNaira(evaluation.maxAmount, { trimZeroKobo: true })} ${customer.firstName} qualifies for. `
+              : `${customer.firstName} does not meet every check. `}
+            You can still send it. The approver will see why.
+          </Alert>
+        )}
         <Button
           variant="primary"
           size="lg"
@@ -531,7 +579,13 @@ function ApplicationForm({ customer, topUp }: { customer: Customer; topUp: Loan 
         >
           Send for approval
         </Button>
-        {blocked && <p className="text-brick text-sm">Fix the customer checks above first.</p>}
+        {blocked && (
+          <p className="text-brick text-sm">
+            {recordsMissing
+              ? 'Fix the customer checks above first.'
+              : `${customer.firstName} does not meet the lending policy for this product.`}
+          </p>
+        )}
       </div>
     </div>
   )

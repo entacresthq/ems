@@ -32,6 +32,7 @@ import {
   type PaymentMethod,
   type Transaction,
 } from '@/types'
+import { EligibilitySnapshotPanel } from './Eligibility'
 import { tenorLabel } from './LoanProductsPage'
 
 const ROW_STATUS: Record<LoanScheduleRow['status'], { label: string; tone: Tone }> = {
@@ -227,6 +228,7 @@ function LoanView({ loan: l }: { loan: LoanDetail }) {
               ]}
             />
           </Panel>
+          {l.eligibility && <EligibilitySnapshotPanel snapshot={l.eligibility} />}
           <Panel title="History">
             <DescriptionList
               columns={1}

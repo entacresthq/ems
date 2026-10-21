@@ -1,4 +1,5 @@
 import { decodeCharges, type WireCharges } from '@/lib/charges'
+import { decodePolicy } from '@/lib/eligibility'
 import { camelToSnake } from '@/lib/case'
 import { parseDecimal, type Kobo } from '@/lib/money'
 import type {
@@ -6,6 +7,7 @@ import type {
   BusinessSettings,
   Collateral,
   LoanDetail,
+  LoanEligibilitySnapshot,
   LoanProduct,
   LoanScheduleRow,
   Approval,
@@ -36,6 +38,9 @@ export const decode = {
       {
         ...w,
         collateral: w.collateral.map((c) => ({ ...c, estimatedValue: money(c.estimatedValue) })),
+        eligibility: w.eligibility
+          ? { ...w.eligibility, maxAmount: money(w.eligibility.maxAmount) }
+          : null,
       } as Wire<Loan>,
       [
         'principal',
@@ -80,6 +85,9 @@ export const decode = {
       ...s,
       rolePermissions,
       transactionCharges: decodeCharges(w.transactionCharges as unknown as WireCharges | undefined),
+      loanEligibility: decodePolicy(
+        w.loanEligibility as unknown as Parameters<typeof decodePolicy>[0],
+      ),
     }
   },
   thriftPlan: (w: WireThriftPlan): ThriftPlan => ({
@@ -118,8 +126,10 @@ export const decode = {
   }),
 }
 
-export type WireLoan = Omit<Wire<Loan>, 'collateral'> & {
+export type WireLoan = Omit<Wire<Loan>, 'collateral' | 'eligibility'> & {
   collateral: (Omit<Collateral, 'estimatedValue'> & { estimatedValue: string })[]
+  /** Missing from servers older than the eligibility check. */
+  eligibility?: (Omit<LoanEligibilitySnapshot, 'maxAmount'> & { maxAmount: string }) | null
 }
 export type WireLoanDetail = WireLoan & { schedule: Wire<LoanScheduleRow>[] }
 

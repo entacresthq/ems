@@ -1,5 +1,6 @@
 import { DEFAULT_ACCOUNT_NUMBER_FORMAT } from '@/lib/accountNumber'
 import { NO_CHARGES } from '@/lib/charges'
+import { DEFAULT_LOAN_ELIGIBILITY } from '@/lib/eligibility'
 import type { Role } from '@/types'
 import type { MockDb } from './seed/generate'
 
@@ -8,8 +9,8 @@ type Legacy = Record<string, unknown>
 /**
  * Bring records saved by an older version up to the current shape.
  *
- * Also covers later additions: the account number format, target savings goals
- * and guarantor ids, photos and signatures.
+ * Also covers later additions: the account number format, target savings goals,
+ * guarantor ids, photos and signatures, and the loan eligibility policy.
  *
  * Before loan kinds existed, every product was a cash loan with a monthly
  * interest rate, a percentage processing fee and a percentage-a-day penalty.
@@ -42,6 +43,7 @@ export function migrateLoanRecords(data: MockDb): void {
     delete raw.monthlyRatePercent
     raw.itemDescription ??= null
     raw.supplierName ??= null
+    raw.eligibility ??= null
   }
 }
 
@@ -85,6 +87,7 @@ function migrateOtherRecords(data: MockDb): void {
   const settings = data.settings as unknown as Legacy
   settings.accountNumberFormat ??= { ...DEFAULT_ACCOUNT_NUMBER_FORMAT }
   settings.transactionCharges ??= structuredClone(NO_CHARGES)
+  settings.loanEligibility ??= structuredClone(DEFAULT_LOAN_ELIGIBILITY)
   grantTransactionEditing(data)
   for (const raw of data.accounts as unknown as Legacy[]) raw.target ??= null
   for (const raw of data.customers as unknown as Legacy[]) migrateGuarantors(raw.guarantors)

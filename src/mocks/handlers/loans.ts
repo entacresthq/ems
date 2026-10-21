@@ -1,4 +1,5 @@
 import { delay, http, HttpResponse } from 'msw'
+import { encodeReport, evaluateEligibility, failedChecks } from '@/lib/eligibility'
 import { addDays, buildSchedule, processingFee } from '@/lib/loans'
 import { toLagosIso, todayIso } from '@/lib/dates'
 import { formatNaira, kobo, parseDecimal, toDecimal, ZERO, type Kobo } from '@/lib/money'
@@ -6,6 +7,7 @@ import type {
   Collateral,
   FeeRule,
   LoanApplicationInput,
+  LoanEligibilitySnapshot,
   LoanProduct,
   PaymentMethod,
   PenaltyRule,
@@ -23,6 +25,7 @@ import {
   requestApproval,
   staffName,
 } from '../domain'
+import { eligibilityFacts, eligibilityPolicy, eligibilityReport } from '../eligibility'
 import { scheduleWithStatus, type LoanRecord } from '../loanState'
 import { out } from '../serializers'
 import {
@@ -110,6 +113,17 @@ export const loanHandlers = [
       `Updated loan product ${product.name}. Existing loans keep their terms.`,
     )
     return HttpResponse.json(out.loanProduct(product))
+  }),
+
+  // ── Eligibility ────────────────────────────────────────────────────────
+  http.get(api('/customers/:id/loan-eligibility/'), async ({ request, params }) => {
+    await delay()
+    const staff = authenticate(request)
+    if (staff instanceof Response) return staff
+    if (!can(staff, 'loans.apply') && !can(staff, 'loans.view')) return forbidden()
+    const customer = db().customers.find((c) => c.id === params.id)
+    if (!customer || !inScope(staff, customer)) return notFound()
+    return HttpResponse.json(encodeReport(eligibilityReport(customer, param(request, 'top_up'))))
   }),
 
   // ── Loans ──────────────────────────────────────────────────────────────
@@ -268,6 +282,39 @@ export const loanHandlers = [
         ]
       }
     }
+
+    // The business's lending policy: recorded on every application, and refused when enforced.
+    let eligibility: LoanEligibilitySnapshot | null = null
+    if (product && principal && Number.isInteger(count)) {
+      const policy = eligibilityPolicy()
+      const result = evaluateEligibility(policy, eligibilityFacts(customer, policy), product, {
+        installmentCount: count,
+        topUpOfId: topUpOf?.id ?? null,
+      })
+      const failed = failedChecks(result)
+      const over = result.qualified && principal > result.maxAmount
+      const limit = formatNaira(result.maxAmount, { trimZeroKobo: true })
+      if (over)
+        failed.push(
+          `Amount: asked for ${formatNaira(principal, { trimZeroKobo: true })}, qualifies for up to ${limit}`,
+        )
+      const enforced = policy.enabled && policy.enforcement === 'block'
+      eligibility = {
+        qualified: result.qualified && !over,
+        maxAmount: result.maxAmount,
+        failed,
+        enforced,
+      }
+      if (enforced) {
+        const policyFailures = result.checks.filter((c) => c.policy && !c.passed)
+        if (policyFailures.length && !errors.customerId)
+          errors.customerId = policyFailures.map((c) => `Lending policy: ${c.label}. ${c.detail}.`)
+        if (over && !errors.principal)
+          errors.principal = [
+            `${customer.firstName} qualifies for up to ${limit} on ${product.name} over ${count} installments.`,
+          ]
+      }
+    }
     if (Object.keys(errors).length || !product || !principal) return validationError(errors)
 
     const branch = db().branches.find((b) => b.id === customer.branchId)!
@@ -321,6 +368,7 @@ export const loanHandlers = [
       topUpOfId: topUpOf?.id ?? null,
       topUpOfNumber: topUpOf?.loanNumber ?? null,
       extensions: 0,
+      eligibility,
       nextDueDate: null,
       nextDueAmount: null,
       appliedByName: staffName(staff),
@@ -337,7 +385,7 @@ export const loanHandlers = [
       // The MD and general managers approve loans for everyone else, so theirs are approved straight away.
       requestApproval(staff, {
         type: 'loan_application',
-        subject: `${topUpOf ? 'Top-up' : isBnpl ? 'Buy now pay later purchase' : 'Loan'} of ${formatNaira(principal, { trimZeroKobo: true })} for ${loan.customerName} (${product.name})`,
+        subject: `${topUpOf ? 'Top-up' : isBnpl ? 'Buy now pay later purchase' : 'Loan'} of ${formatNaira(principal, { trimZeroKobo: true })} for ${loan.customerName} (${product.name})${eligibility && !eligibility.qualified ? ', outside the lending policy' : ''}`,
         amount: principal,
         branchId: loan.branchId,
         customerId: customer.id,

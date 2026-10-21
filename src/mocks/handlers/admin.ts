@@ -16,6 +16,7 @@ import {
   type AccountNumberFormat,
   type BusinessSettings,
   type Holiday,
+  type LoanEligibilityPolicy,
   type Permission,
   type Role,
   type SmsTemplate,
@@ -25,6 +26,7 @@ import { normalisePhone } from '@/lib/phone'
 import { PERMISSION_LABELS, roleWithArticle } from '@/lib/permissionCatalogue'
 import { assignPermissions, grantablePermissions, ROLE_PERMISSIONS } from '@/lib/permissions'
 import { describeCharge, NO_CHARGES } from '@/lib/charges'
+import { DEFAULT_LOAN_ELIGIBILITY } from '@/lib/eligibility'
 import { commit, db, updateStaff } from '../db'
 import { PASSWORD_WORDS } from '../passwordWords'
 import { platform } from '../platform'
@@ -185,6 +187,79 @@ function parseWithdrawalCharge(
   return 'Choose no charge, a percentage or a flat fee.'
 }
 
+const SAVINGS_TYPES = ['savings', 'target', 'thrift'] as const
+
+/** Check the loan eligibility policy from Settings. Missing fields keep their current value. */
+function parseLoanEligibility(
+  raw: Record<string, unknown>,
+  existing: LoanEligibilityPolicy,
+): { policy: LoanEligibilityPolicy; errors: Record<string, string[]> } {
+  const errors: Record<string, string[]> = {}
+  const policy: LoanEligibilityPolicy = { ...existing }
+  const has = (key: keyof LoanEligibilityPolicy) => key in raw
+  const field = (key: keyof LoanEligibilityPolicy) => `loanEligibility.${key}`
+  const whole = (
+    key: 'minMembershipDays' | 'minDepositsInWindow' | 'topUpMaxDaysInArrears',
+    max: number,
+  ) => {
+    if (!has(key)) return
+    const v = Number(raw[key])
+    if (!Number.isInteger(v) || v < 0 || v > max)
+      errors[field(key)] = [`Enter a whole number from 0 to ${max}.`]
+    else policy[key] = v
+  }
+  /** A decimal string in range; empty means "no limit" where that is allowed. */
+  const decimal = (key: 'savingsMultiplier' | 'maxRepaymentPercent', min: number, max: number) => {
+    if (!has(key)) return
+    const v = raw[key]
+    if (v === null || v === '') {
+      policy[key] = null
+      return
+    }
+    const n = Number(v)
+    if (!Number.isFinite(n) || n < min || n > max)
+      errors[field(key)] = [
+        `Enter a number above ${min} and no more than ${max}, or leave it empty for no limit.`,
+      ]
+    else policy[key] = n.toFixed(2)
+  }
+
+  if (has('enabled')) policy.enabled = Boolean(raw.enabled)
+  if (has('enforcement')) {
+    if (raw.enforcement !== 'block' && raw.enforcement !== 'advise')
+      errors[field('enforcement')] = ['Choose whether to refuse or only flag applications.']
+    else policy.enforcement = raw.enforcement
+  }
+  whole('minMembershipDays', 3650)
+  whole('minDepositsInWindow', 90)
+  whole('topUpMaxDaysInArrears', 365)
+  if (has('minSavings')) {
+    try {
+      const v = parseDecimal(String(raw.minSavings ?? '0'))
+      if (v < 0) throw new Error()
+      policy.minSavings = v
+    } catch {
+      errors[field('minSavings')] = ['Enter ₦0 or more.']
+    }
+  }
+  decimal('savingsMultiplier', 0, 100)
+  decimal('maxRepaymentPercent', 0, 500)
+  if (has('savingsAccountTypes')) {
+    const list = Array.isArray(raw.savingsAccountTypes) ? raw.savingsAccountTypes : []
+    policy.savingsAccountTypes = SAVINGS_TYPES.filter((t) => list.includes(t))
+    if (policy.savingsAccountTypes.length === 0)
+      errors[field('savingsAccountTypes')] = ['Choose at least one kind of account to count.']
+  }
+  if (has('blockAfterWriteOff')) policy.blockAfterWriteOff = Boolean(raw.blockAfterWriteOff)
+  if (has('topUpMinRepaidPercent')) {
+    const n = Number(raw.topUpMinRepaidPercent)
+    if (!Number.isFinite(n) || n < 0 || n > 100)
+      errors[field('topUpMinRepaidPercent')] = ['Enter a percentage from 0 to 100.']
+    else policy.topUpMinRepaidPercent = n.toFixed(2)
+  }
+  return { policy, errors }
+}
+
 export const adminHandlers = [
   // ── Settings ───────────────────────────────────────────────────────────
   http.get(api('/settings/'), async ({ request }) => {
@@ -279,6 +354,20 @@ export const adminHandlers = [
       next.transactionCharges = charges
       changed.push(
         `withdrawal charges (savings: ${describeCharge(charges.savingsWithdrawal, formatNaira)}; target savings: ${describeCharge(charges.targetWithdrawal, formatNaira)})`,
+      )
+    }
+    if ('loanEligibility' in body) {
+      const result = parseLoanEligibility(
+        (body.loanEligibility ?? {}) as Record<string, unknown>,
+        s.loanEligibility ?? DEFAULT_LOAN_ELIGIBILITY,
+      )
+      Object.assign(errors, result.errors)
+      next.loanEligibility = result.policy
+      const p = result.policy
+      changed.push(
+        p.enabled
+          ? `loan eligibility policy (${p.enforcement === 'block' ? 'refuses' : 'flags'} applications that fail)`
+          : 'loan eligibility policy (switched off)',
       )
     }
     for (const [key, min, max, label] of [

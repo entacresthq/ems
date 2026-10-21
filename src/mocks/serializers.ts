@@ -1,4 +1,5 @@
 import { encodeCharges, NO_CHARGES } from '@/lib/charges'
+import { DEFAULT_LOAN_ELIGIBILITY, encodePolicy } from '@/lib/eligibility'
 import type { JsonBodyType } from 'msw'
 import { toDecimal, type Kobo } from '@/lib/money'
 import type {
@@ -58,6 +59,9 @@ export const out = {
           ...c,
           estimatedValue: toDecimal(c.estimatedValue),
         })),
+        eligibility: rest.eligibility
+          ? { ...rest.eligibility, maxAmount: toDecimal(rest.eligibility.maxAmount) }
+          : null,
       },
       LOAN_MONEY,
     )
@@ -82,9 +86,14 @@ export const out = {
       ['minAmount', 'maxAmount'],
     ),
   settings: (s: BusinessSettings) =>
-    serialize({ ...s, transactionCharges: encodeCharges(s.transactionCharges ?? NO_CHARGES) }, [
-      'largeWithdrawalThreshold',
-    ]),
+    serialize(
+      {
+        ...s,
+        transactionCharges: encodeCharges(s.transactionCharges ?? NO_CHARGES),
+        loanEligibility: encodePolicy(s.loanEligibility ?? DEFAULT_LOAN_ELIGIBILITY),
+      },
+      ['largeWithdrawalThreshold'],
+    ),
   thriftPlan: (p: ThriftPlan) =>
     serialize(
       {

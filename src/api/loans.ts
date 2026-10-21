@@ -1,6 +1,8 @@
+import { decodeReport, type WireEligibilityReport } from '@/lib/eligibility'
 import { parseDecimal, toDecimal, type Kobo } from '@/lib/money'
 import type {
   Approval,
+  EligibilityReport,
   Id,
   Loan,
   LoanApplicationInput,
@@ -24,6 +26,8 @@ export const loanKeys = {
   all: ['loans'] as const,
   list: (params: LoanListParams) => [...loanKeys.all, 'list', params] as const,
   detail: (id: Id) => [...loanKeys.all, 'detail', id] as const,
+  eligibility: (customerId: Id, topUpId: Id | null) =>
+    [...loanKeys.all, 'eligibility', customerId, topUpId] as const,
 }
 
 export const loanProductKeys = {
@@ -65,6 +69,14 @@ export const loansApi = {
       })),
     }
     return decode.loan(await api.post<WireLoan>('/loans/', body))
+  },
+  /** Whether the customer qualifies for each active product, and for how much. */
+  async eligibility(customerId: Id, topUpId: Id | null = null): Promise<EligibilityReport> {
+    return decodeReport(
+      await api.get<WireEligibilityReport>(`/customers/${customerId}/loan-eligibility/`, {
+        query: { topUp: topUpId ?? undefined },
+      }),
+    )
   },
   async disburse(id: Id, paymentMethod: PaymentMethod): Promise<{ loan: Loan; payout: Kobo }> {
     const res = await api.post<{ loan: WireLoan; payout: string }>(`/loans/${id}/disburse/`, {

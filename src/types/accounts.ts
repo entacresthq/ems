@@ -1,6 +1,7 @@
 import type { Kobo } from '@/lib/money'
 import type { GeoPoint, Id, IsoDate, IsoDateTime, ListParams } from './common'
-import type { Guarantor } from './customer'
+import type { LoanEligibilityPolicy } from './admin'
+import type { CustomerStatus, Guarantor } from './customer'
 import type { InterestBasis, InterestMethod, LoanKind, RepaymentFrequency } from './products'
 
 export type AccountType = 'savings' | 'target' | 'thrift' | 'loan'
@@ -98,6 +99,8 @@ export interface Loan {
   topUpOfId: Id | null
   topUpOfNumber: string | null
   extensions: number
+  /** What the eligibility check found when the application was made; null for older loans. */
+  eligibility: LoanEligibilitySnapshot | null
   nextDueDate: IsoDate | null
   nextDueAmount: Kobo | null
   appliedByName: string
@@ -107,6 +110,80 @@ export interface Loan {
   maturityDate: IsoDate | null
   closedAt: IsoDateTime | null
   createdAt: IsoDateTime
+}
+
+export interface LoanEligibilitySnapshot {
+  /** The customer passed every check and asked for no more than they qualified for. */
+  qualified: boolean
+  /** Most they qualified for on this product and tenor. */
+  maxAmount: Kobo
+  /** Checks that failed, as sentences. */
+  failed: string[]
+  /** The business refuses applications that fail (otherwise the approver decides). */
+  enforced: boolean
+}
+
+/** One thing checked before lending. */
+export interface EligibilityCheck {
+  key: string
+  label: string
+  passed: boolean
+  /** What was found, e.g. "Joined 412 days ago". */
+  detail: string
+  /** Set by the business's lending policy, rather than always required. */
+  policy: boolean
+}
+
+/** What is known about the customer that decides whether they qualify. */
+export interface EligibilityFacts {
+  customerStatus: CustomerStatus
+  hasBvn: boolean
+  hasNextOfKin: boolean
+  guarantorCount: number
+  /** Days since they became a customer. */
+  memberDays: number
+  /** Balances of the account types the policy counts as savings. */
+  savingsBalance: Kobo
+  /** Deposits and thrift contributions in the activity window. */
+  depositsInWindow: number
+  inflowInWindow: Kobo
+  /** Length of the activity window: 90 days, or less for newer customers. */
+  windowDays: number
+  writtenOffLoans: number
+  closedLoans: number
+  /** Their loan that is active, approved or waiting for approval. */
+  openLoan: {
+    id: Id
+    loanNumber: string
+    status: LoanStatus
+    kind: LoanKind
+    totalRepayable: Kobo
+    amountPaid: Kobo
+    outstanding: Kobo
+    daysInArrears: number
+  } | null
+}
+
+/** Whether the customer qualifies for one product, and for how much. */
+export interface ProductEligibility {
+  productId: Id
+  productName: string
+  /** The tenor the amount was worked out for. */
+  installmentCount: number
+  qualified: boolean
+  /** Most they can borrow; zero when they don't qualify. */
+  maxAmount: Kobo
+  /** The limit that sets the amount. */
+  limitedBy: string
+  limits: { key: string; label: string; amount: Kobo }[]
+  checks: EligibilityCheck[]
+}
+
+export interface EligibilityReport {
+  policy: LoanEligibilityPolicy
+  facts: EligibilityFacts
+  /** Every active product, at its longest tenor. */
+  products: ProductEligibility[]
 }
 
 export interface LoanScheduleRow {

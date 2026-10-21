@@ -20,6 +20,7 @@ import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { PendingApprovalBanner } from '@/features/approvals/ApprovalControls'
 import { useCurrentUser } from '@/features/auth/AuthProvider'
 import { Can } from '@/features/auth/Can'
+import { CustomerEligibilityPanel } from '@/features/loans/Eligibility'
 import { OpenAccountDialog } from '@/features/accounts/OpenAccountDialog'
 import { useOfficers } from '@/features/shared/lookups'
 import { formatDate, formatDateTime } from '@/lib/dates'
@@ -119,6 +120,7 @@ function CustomerProfile({ customer: c }: { customer: Customer }) {
           <RecentTransactions customerId={c.id} />
         </div>
         <div className="flex flex-col gap-6">
+          {hasPermission(user, 'loans.apply') && <CustomerEligibilityPanel customer={c} />}
           <Panel title="Details">
             <DescriptionList
               columns={1}

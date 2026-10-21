@@ -1,4 +1,5 @@
 import type { Kobo } from '@/lib/money'
+import type { AccountType } from './accounts'
 import type { Permission, Role } from './auth'
 import type { Id, IsoDate, IsoDateTime, ListParams } from './common'
 
@@ -68,6 +69,41 @@ export interface TransactionCharges {
   targetWithdrawal: WithdrawalCharge
 }
 
+/**
+ * Who qualifies for a loan and for how much. Applies to every loan product, on top
+ * of the product's own amounts, tenors and guarantor rule.
+ */
+export interface LoanEligibilityPolicy {
+  /** When off, only the product's rules and the customer's records are checked. */
+  enabled: boolean
+  /**
+   * block: applications that fail are refused.
+   * advise: the result is shown to staff and the approver, who decide.
+   */
+  enforcement: 'block' | 'advise'
+  /** How long someone must have been a customer. */
+  minMembershipDays: number
+  /** Savings the customer must hold before borrowing. */
+  minSavings: Kobo
+  /** Lend up to this many times what the customer has saved, e.g. "3.00"; null for no such limit. */
+  savingsMultiplier: string | null
+  /** Which balances count as savings. */
+  savingsAccountTypes: Exclude<AccountType, 'loan'>[]
+  /** Deposits or thrift contributions needed in the last 90 days, to show regular saving. */
+  minDepositsInWindow: number
+  /**
+   * Installments, as a monthly figure, may take at most this percent of what the
+   * customer paid in each month on average over the last 90 days. Null for no such limit.
+   */
+  maxRepaymentPercent: string | null
+  /** Refuse customers who have had a loan written off. */
+  blockAfterWriteOff: boolean
+  /** Top-ups: the current loan may be at most this many days in arrears. */
+  topUpMaxDaysInArrears: number
+  /** Top-ups: at least this percent of the current loan must be repaid, e.g. "50.00". */
+  topUpMinRepaidPercent: string
+}
+
 export interface BusinessSettings {
   businessName: string
   address: string
@@ -81,6 +117,7 @@ export interface BusinessSettings {
   holidays: Holiday[]
   largeWithdrawalThreshold: Kobo
   transactionCharges: TransactionCharges
+  loanEligibility: LoanEligibilityPolicy
   accountNumberFormat: AccountNumberFormat
   reversalWindowDays: number
   fieldSyncMaxAgeDays: number

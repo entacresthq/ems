@@ -1,4 +1,5 @@
 import { encodeCharges } from '@/lib/charges'
+import { encodePolicy } from '@/lib/eligibility'
 import { toDecimal } from '@/lib/money'
 import type {
   AuditEntry,
@@ -48,6 +49,8 @@ export const settingsApi = {
         input.transactionCharges === undefined
           ? undefined
           : encodeCharges(input.transactionCharges),
+      loanEligibility:
+        input.loanEligibility === undefined ? undefined : encodePolicy(input.loanEligibility),
     }
     return decode.settings(await api.patch<Wire<BusinessSettings>>('/settings/', body))
   },
