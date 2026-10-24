@@ -20,6 +20,7 @@
     "desktop": "npm run desktop:web && node electron/start.cjs",
     "desktop:package": "npm run desktop:web && electron-builder --win",
     "licence": "node scripts/licence.mjs",
+    "platform": "node scripts/platform.mjs",
     "server:build": "vite build --config vite.server.config.ts --mode web",
     "web:build": "tsc -b && vite build --mode web --outDir dist-web && npm run server:build",
     "web:start": "node build/server/main.cjs"

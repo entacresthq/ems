@@ -1,0 +1,34 @@
+# /etc/systemd/system/ems.service
+# The multi-business EMS server, run by systemd without Docker.
+#
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now ems
+#   journalctl -u ems -f            # its log
+
+[Unit]
+Description=EMS multi-business server
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+User=ems
+Group=ems
+WorkingDirectory=/srv/ems/app
+# DATABASE_URL, EMS_PLATFORM_KEY and the rest (see deploy/hosted/README.md).
+EnvironmentFile=/etc/ems/env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node build/server/main.cjs
+Restart=always
+RestartSec=5
+# Give the server time to finish saving when it is stopped.
+TimeoutStopSec=30
+
+# Hardening: the server only needs its own folder.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/ems/data
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

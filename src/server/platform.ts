@@ -25,6 +25,7 @@ export function livePlatform({
   branchLimit,
   fixedOtp,
   sessionCookie = 'ems_refresh',
+  business = null,
 }: {
   /** Signs session tokens. Kept in the database, made at first start. */
   secret: string
@@ -33,6 +34,8 @@ export function livePlatform({
   /** The demo workspace always uses the same sign-in code. */
   fixedOtp?: string
   sessionCookie?: string
+  /** Which business, when one server holds several. */
+  business?: string | null
 }): Platform {
   return {
     live: true,
@@ -43,5 +46,6 @@ export function livePlatform({
     sendSms,
     branchLimit,
     sessionCookie,
+    business,
   }
 }

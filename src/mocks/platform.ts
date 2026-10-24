@@ -52,7 +52,7 @@ export function platform(): Platform {
 }
 
 /** One server, several businesses: each request uses its business's platform (src/server/hub.ts). */
-export function usePlatformScope(resolve: () => Platform | undefined) {
+export function setPlatformScope(resolve: () => Platform | undefined) {
   scopeOf = resolve
 }
 

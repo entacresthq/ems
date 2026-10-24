@@ -2,7 +2,7 @@ import { createReadStream, existsSync, statSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { extname, join, normalize, sep } from 'node:path'
 import { timingSafeEqual } from 'node:crypto'
-import type { EmsServer } from './index'
+import type { SmsMessage } from './store'
 import outboxPage from './sms-outbox.html?raw'
 
 /**
@@ -10,8 +10,17 @@ import outboxPage from './sms-outbox.html?raw'
  * for web deployments alike.
  */
 
+/** What answers the API: one business's EmsServer, or a hub holding several. */
+export interface ApiTarget {
+  handle(request: Request): Promise<Response>
+  /** The outbox of the business at the request's address. */
+  listSms(limit: number, request: Request): Promise<SmsMessage[]>
+  /** The operator API at /__platform/ (hub only). */
+  admin?(request: Request): Promise<Response>
+}
+
 export interface HttpOptions {
-  ems: EmsServer
+  ems: ApiTarget
   /** The built web app (index.html and assets/). */
   webRoot: string
   /**
@@ -92,7 +101,11 @@ export function createRequestListener(options: HttpOptions) {
     res.end(body)
   }
 
-  async function serveApi(req: IncomingMessage, res: ServerResponse) {
+  async function serveApi(
+    req: IncomingMessage,
+    res: ServerResponse,
+    answer: (request: Request) => Promise<Response>,
+  ) {
     try {
       const headers = new Headers()
       for (const [key, value] of Object.entries(req.headers)) {
@@ -100,7 +113,7 @@ export function createRequestListener(options: HttpOptions) {
       }
       const method = req.method ?? 'GET'
       const hasBody = !['GET', 'HEAD'].includes(method)
-      const response = await options.ems.handle(
+      const response = await answer(
         new Request(originOf(req) + req.url, {
           method,
           headers,
@@ -163,7 +176,7 @@ export function createRequestListener(options: HttpOptions) {
       )
       return
     }
-    const messages = await options.ems.listSms(30)
+    const messages = await options.ems.listSms(30, new Request(originOf(req) + req.url))
     send(
       res,
       200,
@@ -199,7 +212,10 @@ export function createRequestListener(options: HttpOptions) {
   return (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? '/', 'http://localhost')
     if (isHttps(req)) res.setHeader('Strict-Transport-Security', 'max-age=31536000')
-    if (url.pathname.startsWith('/api/')) return void serveApi(req, res)
+    if (url.pathname.startsWith('/api/'))
+      return void serveApi(req, res, (request) => options.ems.handle(request))
+    const admin = options.ems.admin?.bind(options.ems)
+    if (admin && url.pathname.startsWith('/__platform/')) return void serveApi(req, res, admin)
     if (url.pathname === '/__sms' || url.pathname === '/__sms.json')
       return void serveOutbox(url, req, res).catch((error) => {
         console.error(error)

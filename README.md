@@ -133,9 +133,22 @@ Put it behind HTTPS: Render, Railway and Fly provide HTTPS automatically, or use
 - **Updates.** `EMS_WAIT_FOR_LOCK` lets Render start a new version while the old one still holds the database. The new version answers health checks, waits its turn, then takes over. Requests in those few seconds get "EMS is starting".
 - **Other hosts** (Railway, Fly.io, a VPS) work the same way with the `Dockerfile` and the variables above.
 
-### Hosting for several clients
+### Many businesses on one server
 
-To offer EMS as a hosted service, run every client on one server, each with its own container, database, licence and address. [`deploy/saas/README.md`](deploy/saas/README.md) covers setup, adding clients, renewals, updates and backups with the `deploy/saas/emsctl` script.
+With `EMS_MULTI_BUSINESS=true`, one EMS server and one database hold many businesses. Each opens EMS at its own address (`<id>.<EMS_BASE_DOMAIN>`, or its own domain) and has its own PostgreSQL schema (`biz_<id>`) or SQLite file, licence, staff and SMS outbox.
+
+- `src/server/hub.ts` keeps the list of businesses, picks the business from each request's address, loads it on first use and unloads it after `EMS_IDLE_MINUTES` (default 30) idle.
+- `src/server/tenancy.ts` runs each request inside its business's scope, so `db()` and `platform()` in the business rules return that business. The rules themselves are unchanged.
+- The operator adds, licenses and suspends businesses through `/__platform/businesses`, with `EMS_PLATFORM_KEY`, or with `npm run platform -- …`.
+
+| Variable                  | Meaning                                                                                       |
+| ------------------------- | --------------------------------------------------------------------------------------------- |
+| `EMS_MULTI_BUSINESS=true` | Hold many businesses. Without it, the server holds one, as before.                            |
+| `EMS_BASE_DOMAIN`         | Businesses answer at `<id>.<this>`, e.g. `ayo.ems.example.ng`. `<id>.localhost` always works. |
+| `EMS_PLATFORM_KEY`        | Secret for the operator API (24+ characters). Required.                                       |
+| `EMS_IDLE_MINUTES`        | Unload a business after this many idle minutes (default 30).                                  |
+
+[`deploy/hosted/README.md`](deploy/hosted/README.md) covers the server, DNS, HTTPS, adding businesses, updates and backups.
 
 ### Desktop app (Windows)
 

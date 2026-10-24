@@ -4,17 +4,19 @@ import { dirname } from 'node:path'
 import { getResponse } from 'msw'
 import { keysToCamel, keysToSnake } from '@/lib/case'
 import { todayIso } from '@/lib/dates'
-import { attachStore, db } from '@/mocks/db'
+import { attachStore } from '@/mocks/db'
 import { DEMO_OTP } from '@/mocks/demoLogins'
 import { handlers } from '@/mocks/handlers'
 import { setPlatform } from '@/mocks/platform'
 import { api } from '@/mocks/utils'
+import type { MockDb } from '@/mocks/seed/generate'
 import { checkLicence, machineCode as readMachineCode, type LicenceCheck } from './licence'
 import { demoData, initialData, validateOnboarding } from './onboarding'
 import { livePlatform } from './platform'
 import { smsProvider, type SmsProvider, type SmsProviderName } from './sms'
 import { Store, type SmsMessage } from './store'
 import type { Backend } from './storage/types'
+import { inBusiness, type BusinessScope } from './tenancy'
 
 export { copyDatabase } from './store'
 export { SqliteBackend } from './storage/sqlite'
@@ -52,6 +54,12 @@ export interface EmsServerOptions {
   onSms?: (sms: SmsMessage) => void
   /** Called once if saving fails; the server then refuses further requests. */
   onFatal?: (error: Error) => void
+  /**
+   * Set when this is one of several businesses on one server (hub.ts): its id.
+   * The server then keeps its data and platform to itself and answers each
+   * request inside the business's scope, instead of setting them for the process.
+   */
+  business?: string
 }
 
 export interface SystemStatus {
@@ -68,6 +76,8 @@ export interface SystemStatus {
       }>)
     | null
   machineCode: string
+  /** Which business this is, when one server holds several; null otherwise. */
+  business: string | null
   onboarded: boolean
   businessName: string | null
   /** Where data is kept, and how texts are delivered. */
@@ -122,6 +132,7 @@ export async function openEmsServer(options: EmsServerOptions) {
   const machine = options.machineCode ?? readMachineCode()
   const sms = options.sms ?? smsProvider({})
   const licence = licenceStore(store, options.licenceFile)
+  const business = options.business ?? null
   let fatal: Error | null = null
 
   let secret = store.getMeta('token_secret')
@@ -145,27 +156,38 @@ export async function openEmsServer(options: EmsServerOptions) {
     }
   }
 
-  setPlatform(
-    livePlatform({
-      secret,
-      sendSms: (to, message) => void deliver(to, message).catch(() => undefined),
-      branchLimit: () => {
-        const check = licenceCheck()
-        return check && 'licence' in check ? check.licence.branches : null
-      },
-      fixedOtp: mode === 'demo' ? DEMO_OTP : undefined,
-      sessionCookie: mode === 'demo' ? 'ems_demo_refresh' : 'ems_refresh',
-    }),
-  )
+  const live = livePlatform({
+    secret,
+    sendSms: (to, message) => void deliver(to, message).catch(() => undefined),
+    branchLimit: () => {
+      const check = licenceCheck()
+      return check && 'licence' in check ? check.licence.branches : null
+    },
+    fixedOtp: mode === 'demo' ? DEMO_OTP : undefined,
+    sessionCookie: mode === 'demo' ? 'ems_demo_refresh' : 'ems_refresh',
+    business,
+  })
+  if (!business) setPlatform(live)
 
-  let data = store.load()
-  // The demo workspace sets itself up with the training data.
-  if (!data && mode === 'demo') {
-    data = demoData()
-    store.save(data)
+  let data: MockDb | null = null
+  const save = (next: MockDb) => store.save(next)
+  /** The business's data from now on. A lone server shares it with the whole process. */
+  function setData(next: MockDb) {
+    data = next
+    if (!business) attachStore(next, save)
   }
-  if (data) attachStore(data, (next) => store.save(next))
-  let onboarded = data !== null
+  const scope: BusinessScope = { data: () => data, save, platform: live }
+  /** Run as this business: its own scope on a shared server, the process otherwise. */
+  const within = <T>(fn: () => T): T => (business ? inBusiness(scope, fn) : fn())
+
+  let loaded = store.load()
+  // The demo workspace sets itself up with the training data.
+  if (!loaded && mode === 'demo') {
+    loaded = demoData()
+    store.save(loaded)
+  }
+  if (loaded) setData(loaded)
+  let onboarded = loaded !== null
   await store.flush()
 
   function status(): SystemStatus {
@@ -178,8 +200,9 @@ export async function openEmsServer(options: EmsServerOptions) {
           ? { status: 'invalid', reason: check.reason }
           : { status: check.status, ...check.licence },
       machineCode: machine,
+      business,
       onboarded,
-      businessName: onboarded ? db().settings.businessName : null,
+      businessName: data?.settings.businessName ?? null,
       database: options.storage.kind,
       sms: sms.name,
     }
@@ -221,9 +244,9 @@ export async function openEmsServer(options: EmsServerOptions) {
       )
       if (Object.keys(errors).length) return json(errors, 400)
       // Live data starts clean; training data has its own demo workspace.
-      const fresh = initialData({ ...input, sampleData: false })
+      const fresh = within(() => initialData({ ...input, sampleData: false }))
       store.save(fresh)
-      attachStore(fresh, (next) => store.save(next))
+      setData(fresh)
       onboarded = true
       await store.flush()
       return json({ email: input.md.email, sampleData: false }, 201)
@@ -243,7 +266,9 @@ export async function openEmsServer(options: EmsServerOptions) {
     )
 
   /** Answer one API request, e.g. GET http://…/api/v1/customers/?page=2. */
-  async function handle(request: Request): Promise<Response> {
+  const handle = (request: Request): Promise<Response> => within(() => answer(request))
+
+  async function answer(request: Request): Promise<Response> {
     if (fatal) return unavailable()
     const url = new URL(request.url)
     const path = url.pathname.slice(API.length)
@@ -286,14 +311,22 @@ export async function openEmsServer(options: EmsServerOptions) {
     return response
   }
 
+  /** Save a licence code without going through the Activate screen (the hub's operator tools). */
+  function setLicence(code: string): LicenceCheck {
+    const check = checkLicence(code, machine, todayIso(), options.licenceKey)
+    if (check.status === 'valid') licence.write(code)
+    return check
+  }
+
   return {
     mode,
     handle,
     status,
+    setLicence,
     machineCode: machine,
     database: options.storage.label,
     listSms: (limit?: number) => store.listSms(limit),
-    backup: (file: string) => store.backup(file, onboarded ? db() : null),
+    backup: (file: string) => store.backup(file, onboarded ? data : null),
     close: () => store.close(),
   }
 }

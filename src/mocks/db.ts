@@ -79,7 +79,7 @@ export interface DbScope {
 let scopeOf: (() => DbScope | undefined) | null = null
 
 /** Every db() and commit() reads the current request's business from `resolve`. */
-export function useDbScope(resolve: () => DbScope | undefined) {
+export function setDbScope(resolve: () => DbScope | undefined) {
   scopeOf = resolve
 }
 
