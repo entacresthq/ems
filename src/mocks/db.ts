@@ -66,7 +66,30 @@ export async function initMockDb(): Promise<void> {
   }
 }
 
+/**
+ * The business a request belongs to, when one server holds several businesses
+ * (src/server/hub.ts). Set once by the server; the browser demo and the
+ * single-business server never set it.
+ */
+export interface DbScope {
+  /** The business's data; null until it is set up. */
+  data(): MockDb | null
+  save(data: MockDb): void
+}
+let scopeOf: (() => DbScope | undefined) | null = null
+
+/** Every db() and commit() reads the current request's business from `resolve`. */
+export function useDbScope(resolve: () => DbScope | undefined) {
+  scopeOf = resolve
+}
+
 export function db(): MockDb {
+  if (scopeOf) {
+    // Never fall back to the seed: outside a request there is no business to read.
+    const data = scopeOf()?.data()
+    if (!data) throw new Error('No business is in scope for this request.')
+    return data
+  }
   instance ??= generateDb()
   return instance
 }
@@ -89,6 +112,13 @@ export function attachStore(data: MockDb, save: (data: MockDb) => void) {
 
 /** Persist after a change. Browser writes are batched; the desktop server writes at once. */
 export function commit() {
+  if (scopeOf) {
+    const scope = scopeOf()
+    const data = scope?.data()
+    if (!scope || !data) throw new Error('No business is in scope for this request.')
+    scope.save(data)
+    return
+  }
   if (externalSave) {
     if (instance) externalSave(instance)
     return

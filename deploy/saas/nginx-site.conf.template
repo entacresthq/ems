@@ -1,0 +1,37 @@
+# EMS for {{SLUG}}: https://{{DOMAIN}} -> ems-{{SLUG}} on 127.0.0.1:{{PORT}}.
+# Written by `emsctl add`. HTTPS: sudo certbot --nginx -d {{DOMAIN}} --redirect
+
+upstream ems_{{UPSTREAM}} {
+    server 127.0.0.1:{{PORT}};
+    keepalive 8;
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{DOMAIN}};
+
+    # Customer photos, signatures and guarantor images are uploaded through the API.
+    client_max_body_size 20m;
+
+    server_tokens off;
+    gzip on;
+    gzip_comp_level 5;
+    gzip_min_length 1024;
+    gzip_proxied any;
+    gzip_vary on;
+    gzip_types application/json application/javascript text/css text/plain image/svg+xml;
+
+    location / {
+        proxy_pass http://ems_{{UPSTREAM}};
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        # nginx is the only proxy, so overwrite rather than append.
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;
+        proxy_send_timeout 120s;
+    }
+}

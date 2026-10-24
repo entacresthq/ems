@@ -1,0 +1,308 @@
+#!/usr/bin/env bash
+# emsctl: run several EMS clients on one server (deploy/saas/README.md).
+#
+# Each client gets its own EMS container, its own PostgreSQL database and
+# login, its own licence file and its own web address. They share the server,
+# the "ems-db" PostgreSQL container and the EMS image.
+#
+#   emsctl setup                          first time: folders, database container, image
+#   emsctl add <client> <domain> [code]   new client, e.g. emsctl add ayo ayo.ems.example.ng
+#   emsctl licence <client> <code>        save a new or renewed licence (no restart needed)
+#   emsctl list                           every client, its address and state
+#   emsctl update                         rebuild the image from this checkout, restart each client
+#   emsctl rollback                       go back to the image before the last update
+#   emsctl backup [client]                dump client databases to /srv/ems/backups
+#   emsctl start|stop|restart <client>    stop = suspend (data is kept)
+#   emsctl logs <client>                  follow a client's log
+#   emsctl remove <client>                take a client offline; its data is kept
+#
+# Settings (environment): EMS_HOME (default /srv/ems), EMS_IMAGE (default ems),
+# EMS_CLIENT_MEMORY (default 512m), EMS_BACKUP_DAYS (default 14),
+# BACKUP_S3_URI (optional, e.g. s3://my-backups/ems/; needs the AWS CLI).
+set -euo pipefail
+
+EMS_HOME="${EMS_HOME:-/srv/ems}"
+IMAGE="${EMS_IMAGE:-ems}"
+CLIENT_MEMORY="${EMS_CLIENT_MEMORY:-512m}"
+BACKUP_DAYS="${EMS_BACKUP_DAYS:-14}"
+REPO="$(cd "$(dirname "$(readlink -f "$0")")/../.." && pwd)"
+HERE="$REPO/deploy/saas"
+CLIENTS="$EMS_HOME/clients"
+FIRST_PORT=8100
+NGINX_SITES=/etc/nginx/sites-available
+NGINX_ENABLED=/etc/nginx/sites-enabled
+# The EMS container runs as the "node" user.
+CONTAINER_UID=1000
+
+die() { echo "emsctl: $*" >&2; exit 1; }
+say() { echo "==> $*"; }
+
+client_dir() { echo "$CLIENTS/$1"; }
+need_client() {
+  [[ -d "$(client_dir "$1")" ]] || die "no client called \"$1\". See: emsctl list"
+}
+valid_slug() {
+  [[ "$1" =~ ^[a-z][a-z0-9-]{1,30}$ ]] ||
+    die "client names use 2-31 lower-case letters, digits or dashes, starting with a letter."
+}
+port_of() { cat "$(client_dir "$1")/port"; }
+db_name() { echo "ems_${1//-/_}"; }
+
+psql_admin() {
+  docker exec -i ems-db psql -U postgres -v ON_ERROR_STOP=1 -q "$@"
+}
+
+db_up() {
+  docker compose -f "$HERE/compose.yml" --env-file "$EMS_HOME/db.env" up -d --wait
+}
+
+# Wait until the client's EMS server has loaded its data (not just started).
+wait_ready() {
+  local slug=$1 port
+  port=$(port_of "$slug")
+  for _ in $(seq 1 60); do
+    if curl -fsS "http://127.0.0.1:$port/api/v1/system/status/" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 2
+  done
+  docker logs --tail 30 "ems-$slug" >&2 || true
+  die "ems-$slug did not become ready. Its last log lines are above."
+}
+
+run_client() {
+  local slug=$1 dir port
+  dir=$(client_dir "$slug")
+  port=$(port_of "$slug")
+  # -v also removes the image's unused /data volume (data lives in PostgreSQL).
+  docker rm -f -v "ems-$slug" >/dev/null 2>&1 || true
+  docker run -d \
+    --name "ems-$slug" \
+    --network ems \
+    --restart unless-stopped \
+    -p "127.0.0.1:$port:8080" \
+    --env-file "$dir/env" \
+    -v "$dir/licence:/licence" \
+    --memory "$CLIENT_MEMORY" \
+    --log-opt max-size=10m --log-opt max-file=3 \
+    --label ems.client="$slug" \
+    "$IMAGE:latest" >/dev/null
+  wait_ready "$slug"
+}
+
+each_client() {
+  [[ -d "$CLIENTS" ]] || return 0
+  find "$CLIENTS" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort
+}
+
+next_port() {
+  local port=$FIRST_PORT used
+  used=$(cat "$CLIENTS"/*/port 2>/dev/null || true)
+  while grep -qx "$port" <<<"$used" || ss -ltn "sport = :$port" | grep -q LISTEN; do
+    port=$((port + 1))
+  done
+  echo "$port"
+}
+
+licence_status() {
+  curl -fsS "http://127.0.0.1:$(port_of "$1")/api/v1/system/status/" 2>/dev/null |
+    sed -n 's/.*"licence":{"status":"\([a-z_]*\)".*/\1/p'
+}
+
+# ── Commands ────────────────────────────────────────────────────────────────
+
+cmd_setup() {
+  command -v docker >/dev/null || die "install Docker first."
+  mkdir -p "$CLIENTS" "$EMS_HOME/backups"
+  chmod 750 "$EMS_HOME"
+  if [[ ! -f "$EMS_HOME/db.env" ]]; then
+    umask 077
+    echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)" >"$EMS_HOME/db.env"
+    say "Created $EMS_HOME/db.env with a new database password"
+  fi
+  say "Starting the shared database"
+  db_up
+  say "Building the EMS image"
+  docker build -t "$IMAGE:latest" "$REPO"
+  say "Ready. Add a client with: emsctl add <client> <domain>"
+}
+
+cmd_add() {
+  local slug=${1:-} domain=${2:-} code=${3:-}
+  [[ -n "$slug" && -n "$domain" ]] || die "usage: emsctl add <client> <domain> [licence-code]"
+  valid_slug "$slug"
+  [[ ! -e "$(client_dir "$slug")" ]] || die "client \"$slug\" already exists."
+  [[ "$domain" =~ ^[a-z0-9.-]+\.[a-z]{2,}$ ]] || die "\"$domain\" doesn't look like a domain."
+  grep -rqsx "$domain" "$CLIENTS"/*/domain && die "$domain is already used by another client."
+  docker image inspect "$IMAGE:latest" >/dev/null 2>&1 || die "no EMS image yet. Run: emsctl setup"
+
+  local dir db password port upstream
+  dir=$(client_dir "$slug")
+  db=$(db_name "$slug")
+  password=$(openssl rand -hex 24)
+  port=$(next_port)
+
+  say "Creating database $db"
+  db_up
+  psql_admin <<SQL
+CREATE ROLE $db LOGIN PASSWORD '$password';
+CREATE DATABASE $db OWNER $db;
+REVOKE ALL ON DATABASE $db FROM PUBLIC;
+SQL
+
+  say "Writing $dir"
+  mkdir -p "$dir/licence"
+  echo "$domain" >"$dir/domain"
+  echo "$port" >"$dir/port"
+  (
+    umask 077
+    cat >"$dir/env" <<ENV
+# EMS for $slug ($domain). Change, then: emsctl restart $slug
+DATABASE_URL=postgresql://$db:$password@ems-db:5432/$db?sslmode=disable
+EMS_LICENCE_FILE=/licence/licence.txt
+EMS_TRUST_PROXY=true
+EMS_WAIT_FOR_LOCK=true
+# outbox (nothing sent), termii or africastalking. See README → Deploying EMS.
+EMS_SMS_PROVIDER=outbox
+# TERMII_API_KEY=
+# TERMII_SENDER_ID=
+# Read sign-in codes at https://$domain/__sms?key=<this> until SMS is connected.
+EMS_OUTBOX_KEY=$(openssl rand -hex 16)
+ENV
+  )
+  if [[ -n "$code" ]]; then printf '%s' "$code" >"$dir/licence/licence.txt"; fi
+  # EMS saves a licence entered on its Activate screen into this folder.
+  sudo chown -R "$CONTAINER_UID:$CONTAINER_UID" "$dir/licence"
+
+  say "Starting ems-$slug on 127.0.0.1:$port"
+  run_client "$slug"
+
+  say "Adding the nginx site for $domain"
+  upstream=${slug//-/_}
+  sed -e "s/{{SLUG}}/$slug/g" -e "s/{{DOMAIN}}/$domain/g" \
+    -e "s/{{PORT}}/$port/g" -e "s/{{UPSTREAM}}/$upstream/g" \
+    "$HERE/nginx-site.conf.template" | sudo tee "$NGINX_SITES/ems-$slug" >/dev/null
+  sudo ln -sf "$NGINX_SITES/ems-$slug" "$NGINX_ENABLED/ems-$slug"
+  sudo nginx -t && sudo systemctl reload nginx
+
+  local open_step="Enter the licence code there, or save it with: emsctl licence $slug <code>"
+  [[ -z "$code" ]] || open_step="The licence is in place, so it goes straight to set-up."
+  cat <<DONE
+
+Client "$slug" is running.
+  1. Point DNS for $domain at this server (an A record).
+  2. Turn on HTTPS:  sudo certbot --nginx -d $domain --redirect
+  3. Open https://$domain. $open_step
+     The client's MD then enters the business details and their own account.
+  Until SMS is connected, sign-in codes are at https://$domain/__sms?key=$(sed -n 's/^EMS_OUTBOX_KEY=//p' "$dir/env")
+DONE
+}
+
+cmd_licence() {
+  local slug=${1:-} code=${2:-}
+  [[ -n "$slug" && -n "$code" ]] || die "usage: emsctl licence <client> <code>"
+  need_client "$slug"
+  local file
+  file="$(client_dir "$slug")/licence/licence.txt"
+  printf '%s' "$code" | sudo tee "$file" >/dev/null
+  sudo chown "$CONTAINER_UID:$CONTAINER_UID" "$file"
+  sleep 1
+  local status
+  status=$(licence_status "$slug")
+  echo "Licence for $slug: ${status:-unknown (is ems-$slug running?)}"
+  [[ "$status" == valid ]] || die "EMS didn't accept this code. Check it was issued without --machine."
+}
+
+cmd_list() {
+  printf '%-14s %-34s %-6s %-10s %s\n' CLIENT ADDRESS PORT STATE LICENCE
+  local slug state
+  for slug in $(each_client); do
+    state=$(docker inspect -f '{{.State.Status}}' "ems-$slug" 2>/dev/null || echo missing)
+    printf '%-14s %-34s %-6s %-10s %s\n' "$slug" "$(cat "$(client_dir "$slug")/domain")" \
+      "$(port_of "$slug")" "$state" "$( [[ $state == running ]] && licence_status "$slug" || echo -)"
+  done
+}
+
+cmd_update() {
+  say "Building the EMS image from $(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo this checkout)"
+  if docker image inspect "$IMAGE:latest" >/dev/null 2>&1; then
+    docker tag "$IMAGE:latest" "$IMAGE:previous"
+  fi
+  docker build -t "$IMAGE:latest" "$REPO"
+  restart_all
+  say "Updated. If something is wrong: emsctl rollback"
+}
+
+cmd_rollback() {
+  docker image inspect "$IMAGE:previous" >/dev/null 2>&1 || die "there is no previous image."
+  docker tag "$IMAGE:previous" "$IMAGE:latest"
+  restart_all
+  say "Back on the previous image."
+}
+
+restart_all() {
+  local slug
+  for slug in $(each_client); do
+    # Suspended clients stay suspended.
+    if [[ "$(docker inspect -f '{{.State.Status}}' "ems-$slug" 2>/dev/null)" == exited ]]; then
+      echo "   $slug: suspended, left stopped"
+      continue
+    fi
+    say "Restarting $slug"
+    run_client "$slug"
+  done
+}
+
+cmd_backup() {
+  local only=${1:-} slug db stamp dir file
+  stamp=$(date +%Y%m%d-%H%M%S)
+  for slug in $(each_client); do
+    [[ -z "$only" || "$only" == "$slug" ]] || continue
+    db=$(db_name "$slug")
+    dir="$EMS_HOME/backups/$slug"
+    mkdir -p "$dir"
+    file="$dir/$slug-$stamp.dump"
+    docker exec ems-db pg_dump -U postgres -Fc "$db" >"$file.part"
+    mv "$file.part" "$file"
+    find "$dir" -name '*.dump' -mtime +"$BACKUP_DAYS" -delete
+    echo "   $slug: $file ($(du -h "$file" | cut -f1))"
+  done
+  if [[ -n "${BACKUP_S3_URI:-}" ]]; then
+    say "Copying backups to $BACKUP_S3_URI"
+    aws s3 sync "$EMS_HOME/backups" "$BACKUP_S3_URI" --only-show-errors
+  fi
+}
+
+cmd_remove() {
+  local slug=${1:-}
+  [[ -n "$slug" ]] || die "usage: emsctl remove <client>"
+  need_client "$slug"
+  docker rm -f -v "ems-$slug" >/dev/null 2>&1 || true
+  sudo rm -f "$NGINX_ENABLED/ems-$slug" "$NGINX_SITES/ems-$slug"
+  sudo nginx -t && sudo systemctl reload nginx
+  local archived
+  archived="$EMS_HOME/removed/$slug-$(date +%Y%m%d)"
+  mkdir -p "$EMS_HOME/removed"
+  mv "$(client_dir "$slug")" "$archived"
+  cat <<DONE
+$slug is offline. Its settings are in $archived and its database $(db_name "$slug") is kept.
+To delete the data for good (back it up first):
+  docker exec ems-db psql -U postgres -c 'DROP DATABASE $(db_name "$slug")' -c 'DROP ROLE $(db_name "$slug")'
+DONE
+}
+
+case "${1:-}" in
+  setup) cmd_setup ;;
+  add) shift; cmd_add "$@" ;;
+  licence | license) shift; cmd_licence "$@" ;;
+  list | ls) cmd_list ;;
+  update) cmd_update ;;
+  rollback) cmd_rollback ;;
+  backup) shift; cmd_backup "$@" ;;
+  start) need_client "${2:-}"; docker start "ems-$2" >/dev/null; wait_ready "$2"; echo "$2 started" ;;
+  stop) need_client "${2:-}"; docker stop "ems-$2" >/dev/null; echo "$2 stopped (suspended)" ;;
+  restart) need_client "${2:-}"; run_client "$2"; echo "$2 restarted" ;;
+  logs) need_client "${2:-}"; docker logs -f --tail 100 "ems-$2" ;;
+  remove) shift; cmd_remove "$@" ;;
+  *) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+esac

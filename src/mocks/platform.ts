@@ -24,6 +24,8 @@ export interface Platform {
    * computer (the desktop's live and demo workspaces) need different names.
    */
   sessionCookie: string
+  /** Which business this is, when one server holds several; null otherwise. */
+  business?: string | null
 }
 
 const demo: Platform = {
@@ -38,9 +40,20 @@ const demo: Platform = {
 }
 
 let current: Platform = demo
+let scopeOf: (() => Platform | undefined) | null = null
 
 export function platform(): Platform {
+  if (scopeOf) {
+    const scoped = scopeOf()
+    if (!scoped) throw new Error('No business is in scope for this request.')
+    return scoped
+  }
   return current
+}
+
+/** One server, several businesses: each request uses its business's platform (src/server/hub.ts). */
+export function usePlatformScope(resolve: () => Platform | undefined) {
+  scopeOf = resolve
 }
 
 export function setPlatform(next: Platform) {

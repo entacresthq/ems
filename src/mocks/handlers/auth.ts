@@ -17,6 +17,8 @@ import {
 } from '../utils'
 
 interface Challenge {
+  /** The business the code was sent for, when one server holds several. */
+  business: string | null
   staffId: string
   code: string
   attemptsLeft: number
@@ -25,6 +27,12 @@ interface Challenge {
 }
 
 const challenges = new Map<string, Challenge>()
+
+/** A sign-in attempt, only if it belongs to the business answering this request. */
+function findChallenge(id: string): Challenge | undefined {
+  const challenge = challenges.get(id)
+  return challenge && challenge.business === (platform().business ?? null) ? challenge : undefined
+}
 const OTP_TTL_MS = 5 * 60 * 1000
 const RESEND_AFTER_S = 30
 const MAX_OTP_ATTEMPTS = 5
@@ -39,6 +47,7 @@ function newChallenge(staff: StaffRecord) {
   const code = platform().otp()
   sendTemplateSms(staff.phone, 'login_otp', { code })
   challenges.set(id, {
+    business: platform().business ?? null,
     staffId: staff.id,
     code,
     attemptsLeft: MAX_OTP_ATTEMPTS,
@@ -112,7 +121,7 @@ export const authHandlers = [
     await delay()
     const body = (await request.json()) as Body
     const challengeId = str(body, 'challenge_id')
-    const challenge = challenges.get(challengeId)
+    const challenge = findChallenge(challengeId)
     if (!challenge) {
       return HttpResponse.json(
         { detail: 'This sign-in attempt has expired. Start again.', code: 'challenge_expired' },
@@ -136,7 +145,7 @@ export const authHandlers = [
     const body = (await request.json()) as Body
     const challengeId = str(body, 'challenge_id')
     const code = str(body, 'code').trim()
-    const challenge = challenges.get(challengeId)
+    const challenge = findChallenge(challengeId)
     if (!challenge || challenge.expiresAt < Date.now()) {
       challenges.delete(challengeId)
       return HttpResponse.json(

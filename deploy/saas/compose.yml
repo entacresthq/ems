@@ -1,0 +1,40 @@
+# Shared PostgreSQL for hosted EMS clients (deploy/saas/README.md).
+#
+# Each client gets its own database and login role in this server, created by
+# `emsctl add`. Client containers reach it as "ems-db" on the private "ems"
+# Docker network; nothing is published to the host or the internet.
+#
+#   docker compose -f deploy/saas/compose.yml --env-file /srv/ems/db.env up -d
+
+name: ems-hosting
+
+services:
+  db:
+    image: postgres:16
+    container_name: ems-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in /srv/ems/db.env}
+    volumes:
+      - emsdb:/var/lib/postgresql/data
+    networks: [ems]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    shm_size: 128m
+    mem_limit: ${EMS_DB_MEMORY:-512m}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+networks:
+  ems:
+    name: ems
+
+volumes:
+  emsdb:

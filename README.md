@@ -133,6 +133,10 @@ Put it behind HTTPS: Render, Railway and Fly provide HTTPS automatically, or use
 - **Updates.** `EMS_WAIT_FOR_LOCK` lets Render start a new version while the old one still holds the database. The new version answers health checks, waits its turn, then takes over. Requests in those few seconds get "EMS is starting".
 - **Other hosts** (Railway, Fly.io, a VPS) work the same way with the `Dockerfile` and the variables above.
 
+### Hosting for several clients
+
+To offer EMS as a hosted service, run every client on one server, each with its own container, database, licence and address. [`deploy/saas/README.md`](deploy/saas/README.md) covers setup, adding clients, renewals, updates and backups with the `deploy/saas/emsctl` script.
+
 ### Desktop app (Windows)
 
 - Built with `.env.desktop`.
