@@ -67,4 +67,8 @@ export const StaffDetailPage = page(
   'StaffDetailPage',
 )
 export const SettingsPage = page(() => import('@/features/admin/SettingsPage'), 'SettingsPage')
+export const SubscriptionPage = page(
+  () => import('@/features/subscription/SubscriptionPage'),
+  'SubscriptionPage',
+)
 export const UiKitPage = page(() => import('@/features/dev/UiKitPage'), 'UiKitPage')

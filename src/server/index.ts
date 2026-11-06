@@ -7,11 +7,17 @@ import { todayIso } from '@/lib/dates'
 import { attachStore } from '@/mocks/db'
 import { DEMO_OTP } from '@/mocks/demoLogins'
 import { handlers } from '@/mocks/handlers'
-import { setPlatform } from '@/mocks/platform'
+import {
+  ORIGIN_HEADER,
+  setPlatform,
+  SubscriptionError,
+  subscriptionErrorBody,
+  type SubscriptionGateway,
+} from '@/mocks/platform'
 import { api } from '@/mocks/utils'
 import type { MockDb } from '@/mocks/seed/generate'
 import { checkLicence, machineCode as readMachineCode, type LicenceCheck } from './licence'
-import { demoData, initialData, validateOnboarding } from './onboarding'
+import { demoData, initialData, validateOnboarding, type OnboardingInput } from './onboarding'
 import { livePlatform } from './platform'
 import { smsProvider, type SmsProvider, type SmsProviderName } from './sms'
 import { Store, type SmsMessage } from './store'
@@ -60,6 +66,8 @@ export interface EmsServerOptions {
    * request inside the business's scope, instead of setting them for the process.
    */
   business?: string
+  /** Hosted EMS: the business's subscription with SynchGate (saas.ts). */
+  subscription?: SubscriptionGateway | null
 }
 
 export interface SystemStatus {
@@ -83,6 +91,8 @@ export interface SystemStatus {
   /** Where data is kept, and how texts are delivered. */
   database: Backend['kind']
   sms: SmsProviderName
+  /** Hosted EMS: the licence comes from a subscription, renewed by paying, not by a code. */
+  subscription: boolean
 }
 
 const API = '/api/v1'
@@ -166,6 +176,7 @@ export async function openEmsServer(options: EmsServerOptions) {
     fixedOtp: mode === 'demo' ? DEMO_OTP : undefined,
     sessionCookie: mode === 'demo' ? 'ems_demo_refresh' : 'ems_refresh',
     business,
+    subscription: options.subscription ?? null,
   })
   if (!business) setPlatform(live)
 
@@ -205,6 +216,42 @@ export async function openEmsServer(options: EmsServerOptions) {
       businessName: data?.settings.businessName ?? null,
       database: options.storage.kind,
       sms: sms.name,
+      subscription: Boolean(options.subscription),
+    }
+  }
+
+  /** The business, its headquarters and the MD's account: the first-run set-up. */
+  async function onboard(input: OnboardingInput) {
+    // Live data starts clean; training data has its own demo workspace.
+    const fresh = within(() => initialData({ ...input, sampleData: false }))
+    store.save(fresh)
+    setData(fresh)
+    onboarded = true
+    await store.flush()
+  }
+
+  /** Hosted EMS: renewing from the lock screen, and coming back from checkout. */
+  async function subscription(path: string, request: Request): Promise<Response> {
+    const gateway = options.subscription
+    if (!gateway) return json({ detail: 'Not found.', code: 'not_found' }, 404)
+    const body = keysToCamel(await request.json().catch(() => ({}))) as { reference?: unknown }
+    try {
+      if (path === '/system/subscription/renew/') {
+        const origin = new URL(request.url).origin
+        return json(await gateway.renew(`${origin}/subscription/return`), 201)
+      }
+      const reference = typeof body.reference === 'string' ? body.reference.trim() : ''
+      if (!reference) return json({ reference: ['The payment reference is missing.'] }, 400)
+      const result = await gateway.verify(reference)
+      if (result.licence) {
+        const check = setLicence(result.licence)
+        if (check.status !== 'valid') console.error('SynchGate sent a licence EMS refused:', check)
+      }
+      return json({ payment: result.payment, status: status() })
+    } catch (error) {
+      if (error instanceof SubscriptionError)
+        return json(subscriptionErrorBody(error), error.status)
+      throw error
     }
   }
 
@@ -243,14 +290,15 @@ export async function openEmsServer(options: EmsServerOptions) {
         keysToCamel(await request.json().catch(() => ({}))),
       )
       if (Object.keys(errors).length) return json(errors, 400)
-      // Live data starts clean; training data has its own demo workspace.
-      const fresh = within(() => initialData({ ...input, sampleData: false }))
-      store.save(fresh)
-      setData(fresh)
-      onboarded = true
-      await store.flush()
+      await onboard(input)
       return json({ email: input.md.email, sampleData: false }, 201)
     }
+
+    if (
+      request.method === 'POST' &&
+      (path === '/system/subscription/renew/' || path === '/system/subscription/verify/')
+    )
+      return subscription(path, request)
 
     return json({ detail: 'Not found.', code: 'not_found' }, 404)
   }
@@ -284,17 +332,15 @@ export async function openEmsServer(options: EmsServerOptions) {
       )
     else {
       // The handlers match on their own base address (http://localhost/api/v1/ in
-      // the app), whatever address the request came in on.
-      const local =
-        url.origin + API + '/' === api('/')
-          ? request
-          : new Request(api(path) + url.search, {
-              method: request.method,
-              headers: request.headers,
-              body: ['GET', 'HEAD'].includes(request.method)
-                ? undefined
-                : await request.arrayBuffer(),
-            })
+      // the app), whatever address the request came in on. They learn the real one from
+      // X-EMS-Origin, e.g. for links back to EMS; a client can't set it.
+      const headers = new Headers(request.headers)
+      headers.set(ORIGIN_HEADER, url.origin)
+      const local = new Request(api(path) + url.search, {
+        method: request.method,
+        headers,
+        body: ['GET', 'HEAD'].includes(request.method) ? undefined : await request.arrayBuffer(),
+      })
       response =
         (await getResponse(handlers, local)) ??
         json({ detail: 'Not found.', code: 'not_found' }, 404)
@@ -323,6 +369,12 @@ export async function openEmsServer(options: EmsServerOptions) {
     handle,
     status,
     setLicence,
+    /** Set the business up without the Set up screen (hosted sign-up, through the hub). */
+    onboard: async (input: OnboardingInput): Promise<boolean> => {
+      if (onboarded) return false
+      await onboard(input)
+      return true
+    },
     machineCode: machine,
     database: options.storage.label,
     listSms: (limit?: number) => store.listSms(limit),

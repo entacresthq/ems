@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path'
 import { openEmsServer, type EmsServer, type ServerMode } from './index'
 import { createRequestListener } from './http'
 import { businessSchema, openHub } from './hub'
+import { saasClient } from './saas'
 import { smsProvider, type SmsProvider } from './sms'
 import { SqliteBackend } from './storage/sqlite'
 import { DatabaseInUseError, postgresBackend } from './storage/postgres'
@@ -195,6 +196,14 @@ async function startHub(
   const platformKey = env.EMS_PLATFORM_KEY ?? null
   if (!platformKey || platformKey.length < 24)
     fail('set EMS_PLATFORM_KEY to a long random secret (24+ characters). It opens /__platform/.')
+  // Hosted EMS: sign-up and subscriptions through SynchGate.
+  const saasUrl = env.EMS_SAAS_URL ?? null
+  const saasKey = env.EMS_SAAS_KEY ?? null
+  if (saasUrl && (!saasKey || saasKey.length < 24))
+    fail(
+      'set EMS_SAAS_KEY to SynchGate’s EMS_SERVICE_KEY (24+ characters), or leave out EMS_SAAS_URL.',
+    )
+  const saas = saasUrl && saasKey ? saasClient({ url: saasUrl, key: saasKey }) : null
   const waitForLock = env.EMS_WAIT_FOR_LOCK === 'true'
   let hub: Awaited<ReturnType<typeof openHub>> | undefined
   while (!hub) {
@@ -210,6 +219,7 @@ async function startHub(
         platformKey,
         idleMinutes: env.EMS_IDLE_MINUTES ? Number(env.EMS_IDLE_MINUTES) : undefined,
         sms,
+        saas,
       })
     } catch (error) {
       if (waitForLock && error instanceof DatabaseInUseError) {
@@ -221,7 +231,8 @@ async function startHub(
   const running = hub
   console.log(
     `EMS multi-business server on http://${host}:${port} · ${running.businesses().length} businesses · ` +
-      `addresses: <id>.${env.EMS_BASE_DOMAIN ?? 'localhost'} · data: ${env.DATABASE_URL ? 'PostgreSQL' : 'SQLite'} · SMS: ${sms.name}`,
+      `addresses: <id>.${env.EMS_BASE_DOMAIN ?? 'localhost'} · data: ${env.DATABASE_URL ? 'PostgreSQL' : 'SQLite'} · SMS: ${sms.name}` +
+      (saas ? ` · hosted: sign-up and billing through ${saasUrl}` : ''),
   )
   let closing = false
   async function shutdown() {

@@ -26,6 +26,57 @@ export interface Platform {
   sessionCookie: string
   /** Which business this is, when one server holds several; null otherwise. */
   business?: string | null
+  /** Hosted EMS: the business's subscription with SynchGate (src/server/saas.ts). */
+  subscription?: SubscriptionGateway | null
+}
+
+/**
+ * The address a request really came in on. The EMS server sets it, overwriting any a client
+ * sent, because the handlers see every request at http://localhost/api/v1/.
+ */
+export const ORIGIN_HEADER = 'X-EMS-Origin'
+
+export interface CheckoutStarted {
+  paymentUrl: string
+  reference: string
+}
+
+/** One hosted business's plan and payments, kept by SynchGate. Replies are camelCased. */
+export interface SubscriptionGateway {
+  summary(): Promise<unknown>
+  checkout(input: {
+    plan: string
+    months: number
+    callbackUrl: string
+    email?: string
+  }): Promise<CheckoutStarted>
+  /** A month of the current plan, from the lock screen. */
+  renew(callbackUrl: string): Promise<CheckoutStarted>
+  /** After checkout: `licence` is the new licence code once the payment is confirmed. */
+  verify(reference: string): Promise<{ payment: unknown; tenant: unknown; licence: string | null }>
+}
+
+/** SynchGate refused or couldn't be reached (status 503). */
+export class SubscriptionError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+    /** Field errors in DRF's shape, e.g. { slug: ['…'] }. */
+    readonly errors: Record<string, string[]> = {},
+  ) {
+    super(message)
+    this.name = 'SubscriptionError'
+  }
+}
+
+/** A SynchGate refusal as an EMS API reply body: field errors as given, otherwise `detail`. */
+export function subscriptionErrorBody(error: SubscriptionError) {
+  return Object.keys(error.errors).length
+    ? error.errors
+    : {
+        detail: error.message,
+        code: error.status === 503 ? 'billing_unavailable' : 'billing_refused',
+      }
 }
 
 const demo: Platform = {

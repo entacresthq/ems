@@ -1,5 +1,5 @@
 import { createHmac, randomBytes, randomInt, scryptSync, timingSafeEqual } from 'node:crypto'
-import type { Platform } from '@/mocks/platform'
+import type { Platform, SubscriptionGateway } from '@/mocks/platform'
 
 const SCRYPT = { N: 16384, r: 8, p: 1 } as const
 const KEY_LENGTH = 32
@@ -26,6 +26,7 @@ export function livePlatform({
   fixedOtp,
   sessionCookie = 'ems_refresh',
   business = null,
+  subscription = null,
 }: {
   /** Signs session tokens. Kept in the database, made at first start. */
   secret: string
@@ -36,6 +37,8 @@ export function livePlatform({
   sessionCookie?: string
   /** Which business, when one server holds several. */
   business?: string | null
+  /** Hosted EMS: the business's subscription with SynchGate. */
+  subscription?: SubscriptionGateway | null
 }): Platform {
   return {
     live: true,
@@ -47,5 +50,6 @@ export function livePlatform({
     branchLimit,
     sessionCookie,
     business,
+    subscription,
   }
 }

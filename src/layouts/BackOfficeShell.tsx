@@ -16,6 +16,8 @@ import { hasPermission } from '@/lib/permissions'
 import { ROLE_LABELS } from '@/types'
 import { BACK_OFFICE_NAV, DESIGN_SYSTEM_ITEM } from './navigation'
 import { DemoBadge, DemoBanner } from '@/features/setup/DemoBanner'
+import { useSystemStatus } from '@/features/setup/useSystemStatus'
+import { SubscriptionBanner } from '@/features/subscription/SubscriptionBanner'
 
 export function BackOfficeShell() {
   return (
@@ -80,6 +82,7 @@ function ShellFrame() {
 
       <div className="flex min-w-0 flex-col">
         <DemoBanner />
+        <SubscriptionBanner />
         <TopBar onOpenMenu={() => setDrawerOpen(true)} />
         <main
           id="main"
@@ -111,9 +114,12 @@ function ShellFrame() {
 
 function Sidebar() {
   const user = useCurrentUser()
+  const status = useSystemStatus()
+  // Paid for by subscription: on SynchGate (no EMS server), or an EMS hub that sells it.
+  const hosted = config.emsServer ? Boolean(status?.subscription) : !config.useMocks
   const groups = BACK_OFFICE_NAV.map((g) => ({
     ...g,
-    items: g.items.filter((i) => hasPermission(user, i.permission)),
+    items: g.items.filter((i) => hasPermission(user, i.permission) && (!i.hostedOnly || hosted)),
   })).filter((g) => g.items.length > 0)
   const showDesignSystem = import.meta.env.DEV || config.useMocks
   const { branchId } = useBranchScope()

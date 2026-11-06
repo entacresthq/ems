@@ -1,6 +1,11 @@
 import { timingSafeEqual, type KeyObject } from 'node:crypto'
 import { keysToCamel, keysToSnake } from '@/lib/case'
+import { todayIso } from '@/lib/dates'
+import { SubscriptionError, subscriptionErrorBody } from '@/mocks/platform'
 import { openEmsServer, type EmsServer, type SystemStatus } from './index'
+import { checkLicence } from './licence'
+import { validateOnboarding } from './onboarding'
+import type { SaasClient } from './saas'
 import type { SmsProvider } from './sms'
 import { Store, type SmsMessage } from './store'
 import type { Backend } from './storage/types'
@@ -20,6 +25,12 @@ import { installBusinessScopes } from './tenancy'
  *
  * The operator (Entacrest) adds, renames, suspends and licenses businesses
  * through /__platform/businesses, with the platform key.
+ *
+ * Hosted EMS (`saas`): SynchGate sells EMS and is the operator. Visitors sign up at
+ * the bare address (<baseDomain>), which the hub passes to SynchGate; SynchGate then
+ * adds the business here, already set up, with a licence for its trial. Each business
+ * reaches its subscription through SynchGate too, and SynchGate sends a new licence
+ * whenever it is paid for.
  */
 
 export interface BusinessRecord {
@@ -49,6 +60,8 @@ export interface HubOptions {
   machineCode?: string
   licenceKey?: KeyObject
   now?: () => number
+  /** Hosted EMS: sign-up and subscriptions through SynchGate (saas.ts). */
+  saas?: SaasClient | null
 }
 
 const ID = /^[a-z][a-z0-9-]{1,30}$/
@@ -114,6 +127,7 @@ export async function openHub(options: HubOptions) {
       onSms: (m) => options.onSms?.(id, m),
       machineCode: options.machineCode,
       licenceKey: options.licenceKey,
+      subscription: options.saas?.forBusiness(id) ?? null,
       onFatal: (error) => {
         console.error(`EMS business "${id}" stopped saving and will be reloaded.`, error)
         fresh.broken = true
@@ -149,9 +163,47 @@ export async function openHub(options: HubOptions) {
   const timer = setInterval(() => void unloadIdle(), Math.min(idleMs, 60_000))
   timer.unref?.()
 
+  /** The bare address, where visitors sign up: <baseDomain>, www.<baseDomain> or localhost. */
+  function isSignupAddress(url: string) {
+    const host = new URL(url).hostname.toLowerCase()
+    return (
+      host === 'localhost' ||
+      (!!baseDomain && (host === baseDomain || host === `www.${baseDomain}`))
+    )
+  }
+
+  /** Sign-up, passed to SynchGate: /api/v1/signup/plans/, /signup/check/?slug=, POST /signup/. */
+  async function signup(request: Request, saas: SaasClient): Promise<Response> {
+    const url = new URL(request.url)
+    const path = url.pathname.replace(/^\/api\/v1/, '')
+    try {
+      if (path === '/signup/plans/' && request.method === 'GET') return json(await saas.plans())
+      if (path === '/signup/check/' && request.method === 'GET')
+        return json(await saas.checkSlug(url.searchParams.get('slug') ?? ''))
+      if (path === '/signup/' && request.method === 'POST') {
+        const body = await request.json().catch(() => ({}))
+        const tenant = await saas.signup(body, request.headers.get('x-forwarded-for'))
+        const id = String(tenant.id ?? '')
+        // The new business's address, on the same scheme and port as this page.
+        const host = url.host.replace(/^www\./, '')
+        return json({ ...tenant, address: `${url.protocol}//${id}.${host}/` }, 201)
+      }
+    } catch (error) {
+      if (error instanceof SubscriptionError)
+        return json(subscriptionErrorBody(error), error.status)
+      throw error
+    }
+    return json({ detail: 'Not found.', code: 'not_found' }, 404)
+  }
+
   /** Answer one API request for the business at the request's address. */
   async function handle(request: Request): Promise<Response> {
     const business = businessAt(request.url)
+    if (!business && options.saas && isSignupAddress(request.url)) {
+      if (new URL(request.url).pathname.startsWith('/api/v1/signup/'))
+        return signup(request, options.saas)
+      return json({ detail: 'Sign up for EMS at this address.', code: 'signup', signup: true }, 404)
+    }
     if (!business)
       return json(
         { detail: 'There is no EMS business at this address.', code: 'unknown_business' },
@@ -268,6 +320,21 @@ export async function openHub(options: HubOptions) {
         createdAt: new Date(now()).toISOString(),
       }
       const errors = check(record, null)
+      // Hosted sign-up: the business arrives set up, with its MD, and must have a licence
+      // that works, so it never exists half-made.
+      const setup = body.setup === undefined ? null : validateOnboarding(body.setup)
+      if (setup) {
+        for (const [key, messages] of Object.entries(setup.errors))
+          errors[`setup.${key}`] = messages
+        const code = typeof body.licence === 'string' ? body.licence.replace(/\s+/g, '') : ''
+        const verdict = code
+          ? checkLicence(code, options.machineCode ?? '', todayIso(), options.licenceKey)
+          : null
+        if (!verdict) errors.licence = ['A business that is set up needs a licence.']
+        else if (verdict.status === 'invalid') errors.licence = [verdict.reason]
+        else if (verdict.status !== 'valid')
+          errors.licence = ['This licence has ended or is tied to one computer.']
+      }
       if (!ID.test(newId))
         errors.id = ['Use 2–31 lower-case letters, digits or dashes, starting with a letter.']
       else if (RESERVED.has(newId)) errors.id = [`“${newId}” is reserved. Choose another id.`]
@@ -280,6 +347,8 @@ export async function openHub(options: HubOptions) {
         typeof body.licence === 'string' && body.licence.trim()
           ? await licenceFor(record.id, body.licence)
           : null
+      if (setup && !licenceError)
+        await using(record.id, (server) => server.onboard({ ...setup.input, sampleData: false }))
       return json({ ...(await describe(record, true)), ...(licenceError && { licenceError }) }, 201)
     }
 

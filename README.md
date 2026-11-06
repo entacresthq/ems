@@ -150,6 +150,22 @@ With `EMS_MULTI_BUSINESS=true`, one EMS server and one database hold many busine
 
 [`deploy/hosted/README.md`](deploy/hosted/README.md) covers the server, DNS, HTTPS, adding businesses, updates and backups.
 
+### Hosted EMS: sign-up and subscriptions through SynchGate
+
+With `EMS_SAAS_URL` and `EMS_SAAS_KEY`, the multi-business server is sold as a subscription. SynchGate (its `ems` Django app) keeps the plans, the owners' accounts, payments (Paystack) and each business's licence. The hub keeps running the businesses and their data.
+
+- `src/server/saas.ts` is the hub's client for SynchGate (`/v1/ems/…`).
+- **Sign-up** at the bare address (`<EMS_BASE_DOMAIN>`): `/system/status/` answers `404 signup`, and `SetupGate` shows `features/subscription/SignupScreen`. The hub passes `/api/v1/signup/…` to SynchGate. SynchGate then creates the business through `POST /__platform/businesses` with a `setup` (the business and the MD's account) and a licence, so it arrives ready for sign-in.
+- **Licences are SynchGate's.** SynchGate signs them with the Entacrest key, in the usual format, running to the end of the paid or trial time plus the grace days. It sends a new one after every payment (`PATCH /__platform/businesses/<id>`). The existing expiry and branch-limit checks do the rest.
+- **Subscription page** (`/subscription`, `settings.manage`, hosted only): `GET /subscription/`, `POST /subscription/checkout/` (`src/mocks/handlers/subscription.ts`, reached through `platform().subscription`).
+- **No sign-in needed:** `POST /system/subscription/renew/` from the lock screen (`SubscriptionEndedScreen`), and `POST /system/subscription/verify/` where Paystack returns (`/subscription/return`, `PaymentReturnScreen`). Verifying applies the new licence at once.
+- Handlers see every request at `http://localhost/api/v1/`; the server passes the real address in `X-EMS-Origin` (overwriting any a client sent), for Paystack's return link.
+
+| Variable       | Meaning                                                                |
+| -------------- | ---------------------------------------------------------------------- |
+| `EMS_SAAS_URL` | SynchGate's address, e.g. `https://api.synchgate.com`.                 |
+| `EMS_SAAS_KEY` | SynchGate's `EMS_SERVICE_KEY` (24+ characters). Required with the URL. |
+
 ### Desktop app (Windows)
 
 - Built with `.env.desktop`.

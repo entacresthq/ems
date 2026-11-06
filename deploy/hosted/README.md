@@ -134,6 +134,66 @@ A business's **own domain**: they point an `A` record at the server, you run
 Business ids are lower-case letters, digits and dashes, and are part of the
 address, so choose them carefully: they can't be changed later.
 
+## Selling EMS online (SynchGate)
+
+With SynchGate connected, businesses sign up and pay for themselves, and nobody
+issues licence codes by hand:
+
+```
+ems.example.ng (sign-up page) ─► EMS hub ─► SynchGate /v1/ems/signup/
+                                              │ creates the owner's account, the trial,
+                                              │ and a signed licence
+              EMS hub ◄── /__platform/ ───────┘ adds the business, already set up
+ayo.ems.example.ng ─► Administration → Subscription ─► SynchGate ─► Paystack
+                                  new licence after each payment ◄┘
+```
+
+- **Sign-up** is at the bare address (`https://ems.example.ng`). The visitor picks a
+  plan, their address (`ayo`) and their own account. SynchGate starts the free
+  trial and adds the business here with them as its managing director, so they
+  go straight to sign-in: no licence code, no Set up screen.
+- **Paying.** The MD (or anyone with settings access) opens **Administration →
+  Subscription**, picks a plan and how many months, and pays with Paystack. EMS
+  gets the new licence as soon as the payment is confirmed.
+- **When it ends.** The licence runs to the end of the paid (or trial) time plus
+  `EMS_GRACE_DAYS` (SynchGate, default 7). Managers see a warning 10 days before.
+  Afterwards EMS locks, keeping the data, and the lock screen offers **Renew
+  subscription** (a month of the same plan), so nobody needs to be signed in to pay.
+- **Plans, prices and businesses** are managed in SynchGate's Django admin
+  (**EMS (hosted)**). Saving a business there (extending its time, changing its
+  plan, suspending it) updates the hub at once.
+
+Add to `/etc/ems/env`:
+
+```bash
+# SynchGate's address, and the key it expects (SynchGate's EMS_SERVICE_KEY)
+EMS_SAAS_URL=https://api.synchgate.com
+EMS_SAAS_KEY=<long random secret, the same as SynchGate's EMS_SERVICE_KEY>
+```
+
+And to SynchGate's environment:
+
+```bash
+EMS_HUB_URL=https://ems.example.ng          # this server
+EMS_PLATFORM_KEY=<this server's EMS_PLATFORM_KEY>
+EMS_SERVICE_KEY=<the same secret as EMS_SAAS_KEY above>
+EMS_BASE_DOMAIN=ems.example.ng
+# The licence key from `npm run licence -- keygen`: PEM text, or a file path
+EMS_LICENCE_PRIVATE_KEY=/etc/synchgate/ems-licence-private-key.pem
+EMS_TRIAL_DAYS=14
+EMS_GRACE_DAYS=7
+```
+
+Then on SynchGate run `python manage.py migrate` (it adds the starting plans; set
+the real prices in the admin before taking payments). Paystack's webhook is the
+one SynchGate already has, so nothing changes in Paystack.
+
+The `npm run platform` commands below still work for businesses you set up by
+hand. For businesses that came through SynchGate, make changes in SynchGate:
+a licence saved here by hand is replaced the next time SynchGate updates the
+business. After changing the licence key or a plan's branch limit, run
+`python manage.py ems_sync` on SynchGate to send every business a new licence.
+
 ## Updates
 
 ```bash

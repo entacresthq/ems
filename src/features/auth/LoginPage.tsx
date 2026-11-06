@@ -51,7 +51,7 @@ const otpSchema = z.object({
   code: z
     .string()
     .trim()
-    .regex(/^\d{6}$/, 'Enter the 6-digit code from the SMS.'),
+    .regex(/^\d{6}$/, 'Enter the 6-digit code we sent you.'),
 })
 type OtpValues = z.infer<typeof otpSchema>
 
@@ -124,7 +124,11 @@ function CredentialsStep({
     <AuthLayout
       variant={variant}
       title={field ? 'Sign in to the field app' : 'Sign in'}
-      description="Use your staff email and password. We'll text a code to your phone."
+      description={
+        config.useMocks || config.emsServer
+          ? "Use your staff email and password. We'll text a code to your phone."
+          : "Use your staff email and password. We'll email you a code."
+      }
       aside={isDemo ? <DemoAccounts onPick={fillDemo} field={field} /> : undefined}
     >
       <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
@@ -174,6 +178,14 @@ function CredentialsStep({
           >
             Forgot your password?
           </Link>
+        )}
+        {!config.useMocks && !config.emsServer && !field && (
+          <p className="text-ink-2 border-rule border-t pt-4 text-sm">
+            New to EMS?{' '}
+            <Link to="/signup" className="text-ink font-medium underline underline-offset-2">
+              Start your free trial
+            </Link>
+          </p>
         )}
       </form>
     </AuthLayout>
@@ -255,7 +267,7 @@ function OtpStep({
       title="Enter your sign-in code"
       description={
         <>
-          We sent a 6-digit code by SMS to{' '}
+          We sent a 6-digit code {challenge.otpChannel === 'email' ? 'by email' : 'by SMS'} to{' '}
           <span className="text-ink font-medium whitespace-nowrap">
             {challenge.destinationHint}
           </span>

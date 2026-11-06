@@ -5,6 +5,11 @@ import { systemApi, systemKeys } from '@/api/system'
 import { ErrorState } from '@/components/states'
 import { Logo } from '@/components/ui/Logo'
 import { Spinner } from '@/components/ui/Spinner'
+import { SignupScreen } from '@/features/subscription/SignupScreen'
+import {
+  PaymentReturnScreen,
+  SubscriptionEndedScreen,
+} from '@/features/subscription/SubscriptionScreens'
 import { LicenceScreen } from './LicenceScreen'
 import { OnboardingScreen } from './OnboardingScreen'
 
@@ -38,6 +43,9 @@ export function SetupGate({ children }: { children: ReactNode }) {
         </span>
       </div>
     )
+  // Hosted EMS: the bare address is where new businesses sign up.
+  if (status.isError && isApiError(status.error) && status.error.code === 'signup')
+    return <SignupScreen />
   if (status.isError)
     return (
       <div className="bg-paper flex min-h-dvh items-center justify-center p-4">
@@ -48,7 +56,15 @@ export function SetupGate({ children }: { children: ReactNode }) {
         />
       </div>
     )
-  if (status.data.licence?.status !== 'valid') return <LicenceScreen status={status.data} />
+  // Hosted EMS: back from Paystack, signed in or not, and even while locked.
+  if (status.data.subscription && window.location.pathname === '/subscription/return')
+    return <PaymentReturnScreen />
+  if (status.data.licence?.status !== 'valid')
+    return status.data.subscription ? (
+      <SubscriptionEndedScreen status={status.data} />
+    ) : (
+      <LicenceScreen status={status.data} />
+    )
   if (!status.data.onboarded) return <OnboardingScreen status={status.data} />
   return <>{children}</>
 }

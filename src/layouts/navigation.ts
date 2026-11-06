@@ -4,6 +4,7 @@ import {
   Building2,
   ChartColumn,
   ClipboardCheck,
+  CreditCard,
   FileClock,
   HandCoins,
   LayoutDashboard,
@@ -23,6 +24,8 @@ export interface NavItem {
   label: string
   icon: LucideIcon
   permission: Permission
+  /** Only on hosted EMS, where the business pays a subscription. */
+  hostedOnly?: boolean
 }
 
 export interface NavGroup {
@@ -91,6 +94,13 @@ export const BACK_OFFICE_NAV: NavGroup[] = [
       { to: '/branches', label: 'Branches', icon: Building2, permission: 'branches.manage' },
       { to: '/staff', label: 'Staff', icon: UserCog, permission: 'staff.view' },
       { to: '/settings', label: 'Settings', icon: Settings, permission: 'settings.manage' },
+      {
+        to: '/subscription',
+        label: 'Subscription',
+        icon: CreditCard,
+        permission: 'settings.manage',
+        hostedOnly: true,
+      },
     ],
   },
 ]

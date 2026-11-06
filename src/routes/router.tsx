@@ -17,12 +17,15 @@ import { TodayPage } from '@/features/field/TodayPage'
 import { Suspense } from 'react'
 import { LoadingState } from '@/components/states'
 import { BackOfficeShell } from '@/layouts/BackOfficeShell'
+import { SignupScreen } from '@/features/subscription/SignupScreen'
+import { PaymentReturnPage } from '@/features/subscription/SubscriptionScreens'
 import {
   UiKitPage,
   AccountDetailPage,
   AuditLogPage,
   BranchesPage,
   SettingsPage,
+  SubscriptionPage,
   StaffDetailPage,
   StaffPage,
   AccountsPage,
@@ -63,6 +66,7 @@ export const routes: RouteObject[] = [
           { path: '/login', element: <LoginPage /> },
           { path: '/field/login', element: <LoginPage variant="field" /> },
           { path: '/reset-password', element: <ResetPasswordRequestPage /> },
+          { path: '/signup', element: <SignupScreen /> },
         ],
       },
       // Reachable signed in or out: the link comes from an email.
@@ -71,6 +75,8 @@ export const routes: RouteObject[] = [
         element: <RequireAuth />,
         children: [
           { path: '/change-password', element: <ChangePasswordPage /> },
+          // Paystack sends the payer back here; it works even after the subscription ended.
+          { path: '/subscription/return', element: <PaymentReturnPage /> },
           {
             element: <BackOfficeOnly />,
             children: [
@@ -99,6 +105,7 @@ export const routes: RouteObject[] = [
                   guarded('/staff', 'staff.view', <StaffPage />),
                   guarded('/staff/:id', 'staff.view', <StaffDetailPage />),
                   guarded('/settings', 'settings.manage', <SettingsPage />),
+                  guarded('/subscription', 'settings.manage', <SubscriptionPage />),
                   ...(import.meta.env.DEV || config.useMocks
                     ? [
                         {

@@ -99,7 +99,8 @@ export interface LoginRequest {
 
 export interface LoginChallenge {
   challengeId: string
-  otpChannel: 'sms'
+  /** SynchGate emails the code; the EMS server and the demo text it. */
+  otpChannel: 'sms' | 'email'
   /** Masked destination, e.g. "0803 ••• 4567". */
   destinationHint: string
   /** Seconds before another code can be requested. */

@@ -1,4 +1,5 @@
 import { api } from './client'
+import { decodePayment, type CheckoutStarted, type Payment } from './subscription'
 
 /** Licence and set-up state of an EMS server (web or desktop). The Django backend won't have it. */
 export interface LicenceInfo {
@@ -25,6 +26,8 @@ export interface SystemStatus {
   database: 'sqlite' | 'postgres'
   /** "outbox" until an SMS provider is connected. */
   sms: 'outbox' | 'termii' | 'africastalking'
+  /** Hosted EMS: the licence comes from a subscription, renewed by paying, not by a code. */
+  subscription?: boolean
 }
 
 export interface OnboardingRequest {
@@ -42,4 +45,14 @@ export const systemApi = {
     api.post<{ email: string; sampleData: boolean }>('/system/onboarding/', input, {
       auth: false,
     }),
+  /** Hosted EMS, from the lock screen: a month of the current plan. */
+  renew: () => api.post<CheckoutStarted>('/system/subscription/renew/', {}, { auth: false }),
+  /** Hosted EMS, back from checkout: confirms the payment and applies the new licence. */
+  verifyPayment: async (reference: string) => {
+    const raw = await api.post<{
+      payment: Parameters<typeof decodePayment>[0]
+      status: SystemStatus
+    }>('/system/subscription/verify/', { reference }, { auth: false })
+    return { payment: decodePayment(raw.payment) as Payment, status: raw.status }
+  },
 }
