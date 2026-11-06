@@ -7,7 +7,6 @@ import { insightHandlers } from './insights'
 import { loanHandlers } from './loans'
 import { operationHandlers } from './operations'
 import { organisationHandlers } from './organisation'
-import { subscriptionHandlers } from './subscription'
 import { transferHandlers } from './transfers'
 
 export const handlers = [
@@ -21,5 +20,4 @@ export const handlers = [
   ...operationHandlers,
   ...transferHandlers,
   ...insightHandlers,
-  ...subscriptionHandlers,
 ]

@@ -6,7 +6,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { authApi } from '@/api/auth'
 import { applyServerErrors } from '@/api/forms'
 import { isApiError } from '@/api/client'
-import { Checkbox, OtpInput, PasswordInput, TextInput } from '@/components/form/inputs'
+import { Checkbox, OtpInput, PasswordInput, Select, TextInput } from '@/components/form/inputs'
 import { Alert } from '@/components/ui/Alert'
 import { Button } from '@/components/ui/Button'
 import { config } from '@/config'
@@ -84,6 +84,9 @@ function CredentialsStep({
   const field = variant === 'field'
   const isDemo = useIsDemo()
   const [formError, setFormError] = useState<string | null>(null)
+  // Someone who works for more than one business picks which one to sign in to.
+  const [businesses, setBusinesses] = useState<{ id: string; name: string }[] | null>(null)
+  const [business, setBusiness] = useState('')
   const [remembered] = useState(readRememberedEmail)
   const [remember, setRemember] = useState(remembered !== '')
   const {
@@ -106,11 +109,20 @@ function CredentialsStep({
   const onSubmit = handleSubmit(async (values) => {
     setFormError(null)
     try {
-      const challenge = await authApi.login(values)
+      const challenge = await authApi.login(
+        businesses && business ? { ...values, business } : values,
+      )
       // Only once the password has been accepted, so a typo isn't kept.
       writeRememberedEmail(remember ? values.email : null)
       onChallenge(challenge)
     } catch (error) {
+      if (isApiError(error) && error.code === 'choose_business') {
+        const list = (error.data.businesses ?? []) as { id: string; name: string }[]
+        setBusinesses(list)
+        setBusiness(list[0]?.id ?? '')
+        setFormError(error.message)
+        return
+      }
       setFormError(applyServerErrors(error, setError, ['email', 'password']))
     }
   })
@@ -151,6 +163,21 @@ function CredentialsStep({
           error={errors.password?.message}
           {...register('password')}
         />
+        {businesses && (
+          <Select
+            label="Business"
+            value={business}
+            onChange={(e) => setBusiness(e.target.value)}
+            fieldSize={field ? 'field' : 'md'}
+            hint="You work for more than one business. Choose which one to sign in to."
+          >
+            {businesses.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </Select>
+        )}
         <Checkbox
           label="Remember my email address on this computer"
           checked={remember}

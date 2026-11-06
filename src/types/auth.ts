@@ -90,11 +90,19 @@ export interface AuthUser {
   mustChangePassword: boolean
   permissions: Permission[]
   lastLoginAt: IsoDateTime | null
+  /** EMS on SynchGate: the business this session is for, and its subscription. */
+  business?: {
+    id: string
+    name: string
+    status: 'trial' | 'active' | 'past_due' | 'expired' | 'suspended'
+  }
 }
 
 export interface LoginRequest {
   email: string
   password: string
+  /** Which business, for someone who works for more than one (EMS on SynchGate). */
+  business?: string
 }
 
 export interface LoginChallenge {

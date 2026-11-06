@@ -22,11 +22,13 @@ export class ApiError extends Error {
   /** Errors not tied to a field (DRF `detail` / `non_field_errors`). */
   readonly formErrors: string[]
   readonly code: string | undefined
+  /** Extra data the server sent with the error, e.g. the businesses to choose from at sign-in. */
+  readonly data: Record<string, unknown>
 
   constructor(
     status: number,
     message: string,
-    options: Partial<Pick<ApiError, 'fieldErrors' | 'formErrors' | 'code'>> = {},
+    options: Partial<Pick<ApiError, 'fieldErrors' | 'formErrors' | 'code' | 'data'>> = {},
   ) {
     super(message)
     this.name = 'ApiError'
@@ -34,6 +36,7 @@ export class ApiError extends Error {
     this.fieldErrors = options.fieldErrors ?? {}
     this.formErrors = options.formErrors ?? []
     this.code = options.code
+    this.data = options.data ?? {}
   }
 
   get isNetworkError() {
@@ -106,6 +109,12 @@ function toApiError(status: number, body: unknown): ApiError {
   // DRF puts a string error code beside `detail`; a list under `code` is a field error.
   const code = typeof rest.code === 'string' ? rest.code : undefined
   if (code !== undefined) delete rest.code
+  // Sign-in for someone at several businesses lists them; that's data, not a field error.
+  const data: Record<string, unknown> = {}
+  if (Array.isArray(rest.businesses)) {
+    data.businesses = rest.businesses
+    delete rest.businesses
+  }
   const formErrors: string[] = []
   if (typeof detail === 'string') formErrors.push(detail)
   if (Array.isArray(nonFieldErrors)) formErrors.push(...nonFieldErrors.map(String))
@@ -116,6 +125,7 @@ function toApiError(status: number, body: unknown): ApiError {
     fieldErrors,
     formErrors,
     code,
+    data,
   })
 }
 
