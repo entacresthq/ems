@@ -1,3 +1,4 @@
+import { config } from '@/config'
 import { useState } from 'react'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
@@ -184,9 +185,9 @@ export function TemporaryPasswordDialog({
       open={result !== null}
       onClose={onClose}
       size="sm"
-      title="Temporary password"
+      title={result && !result.temporaryPassword ? 'Staff member added' : 'Temporary password'}
       description={
-        result
+        result?.temporaryPassword
           ? `Give this to ${result.staff.firstName} in person or by phone. It is shown only once.`
           : undefined
       }
@@ -196,14 +197,23 @@ export function TemporaryPasswordDialog({
         </Button>
       }
     >
-      {result && (
+      {result && !result.temporaryPassword && (
+        <p className="text-ink-2 text-sm">
+          {result.staff.firstName} already has an account with {result.staff.email}, so they sign in
+          with their own password. Each sign-in also needs a code sent to that email.
+        </p>
+      )}
+      {result?.temporaryPassword && (
         <div className="flex flex-col gap-3">
           <p className="bg-paper rounded px-4 py-3 text-center font-mono text-2xl font-semibold tracking-wide">
             {result.temporaryPassword}
           </p>
           <p className="text-ink-2 text-sm">
             {result.staff.firstName} signs in with {result.staff.email} and this password, then must
-            choose their own. The sign-in code goes to {formatPhone(result.staff.phone)}.
+            choose their own.{' '}
+            {config.useMocks || config.emsServer
+              ? `The sign-in code goes to ${formatPhone(result.staff.phone)}.`
+              : `The sign-in code is emailed to ${result.staff.email}.`}
           </p>
           {result.staff.temporaryPasswordExpiresAt && (
             <p className="text-ink-2 text-sm">

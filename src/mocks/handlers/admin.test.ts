@@ -50,7 +50,7 @@ describe('administration', () => {
     tokenStore.set(null)
     const challenge = await authApi.login({
       email: 'aisha.bello@ems.ng',
-      password: temporaryPassword,
+      password: temporaryPassword!,
     })
     expect(challenge.challengeId).toBeTruthy()
 
@@ -65,7 +65,7 @@ describe('administration', () => {
       Date.now() - 1000,
     ).toISOString()
     const expired = await apiError(
-      authApi.login({ email: 'aisha.bello@ems.ng', password: temporaryPassword }),
+      authApi.login({ email: 'aisha.bello@ems.ng', password: temporaryPassword! }),
     )
     expect(expired.code).toBe('temporary_password_expired')
     // Every change is audited.

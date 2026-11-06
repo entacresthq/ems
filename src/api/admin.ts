@@ -31,7 +31,9 @@ export type BranchInput = Pick<
 >
 export interface StaffWithPassword {
   staff: Staff & { mustChangePassword: boolean }
-  temporaryPassword: string
+  /** Null when they already had a SynchGate account and keep their own password. */
+  temporaryPassword: string | null
+  existingAccount?: boolean
 }
 
 export const settingsApi = {
