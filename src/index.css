@@ -55,6 +55,13 @@
   --text-xl--line-height: 2rem;
   --text-2xl: 2rem;
   --text-2xl--line-height: 2.5rem;
+  /* Display sizes, for the public landing page's headings. */
+  --text-3xl: 2.5rem;
+  --text-3xl--line-height: 3rem;
+  --text-4xl: 3rem;
+  --text-4xl--line-height: 3.5rem;
+  --text-5xl: 3.5rem;
+  --text-5xl--line-height: 4rem;
   /* Field app */
   --text-field: 1.0625rem;
   --text-field--line-height: 1.625rem;
@@ -68,6 +75,7 @@
   --radius-*: initial;
   --radius-sm: 2px;
   --radius: 4px;
+  --radius-lg: 8px;
   --radius-full: 9999px;
 
   --shadow-*: initial;

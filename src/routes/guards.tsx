@@ -4,6 +4,8 @@ import { Logo } from '@/components/ui/Logo'
 import { Spinner } from '@/components/ui/Spinner'
 import { useAuth } from '@/features/auth/AuthProvider'
 import { ForbiddenPage } from '@/features/errors/ErrorPages'
+import { LandingPage } from '@/features/landing/LandingPage'
+import { config } from '@/config'
 import { hasPermission, homePathFor, isFieldUser } from '@/lib/permissions'
 import type { Permission } from '@/types'
 
@@ -27,6 +29,8 @@ export function RequireAuth() {
   const location = useLocation()
   if (state.status === 'loading') return <SessionLoading />
   if (state.status === 'anonymous') {
+    // Visitors to the front page see what EMS is; everywhere else asks them to sign in.
+    if (location.pathname === '/' && !config.useMocks && !config.emsServer) return <LandingPage />
     const loginPath = location.pathname.startsWith('/field') ? '/field/login' : '/login'
     return <Navigate to={loginPath} replace state={{ from: location.pathname + location.search }} />
   }

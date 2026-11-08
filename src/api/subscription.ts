@@ -13,6 +13,8 @@ export interface Plan {
   monthlyPrice: Kobo
   /** Most operational branches; null for no limit. */
   maxBranches: number | null
+  /** Most staff; null for no limit. Older servers may leave it out. */
+  maxStaff?: number | null
   features: string[]
 }
 
